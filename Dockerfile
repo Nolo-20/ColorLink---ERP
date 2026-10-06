@@ -2,9 +2,8 @@
 FROM node:20-slim AS build
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
-COPY package.json pnpm-lock.yaml ./
-# pnpm 12 rechaza versiones publicadas hace menos de 1 día (minimumReleaseAge); el lockfile ya fija las versiones exactas
-RUN echo "minimum-release-age=0" >> .npmrc && pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm run build
 
