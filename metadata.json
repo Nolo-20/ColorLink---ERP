@@ -1,0 +1,6 @@
+{
+  "name": "ColorLink ERP - Control Interno y Logística",
+  "description": "Control interno de ColorLink para gestión de inventarios, cotizaciones técnicas de cuñetes, trazabilidad de proyectos, revisión de calidad y despacho en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

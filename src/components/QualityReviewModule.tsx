@@ -1,0 +1,398 @@
+import React, { useState } from 'react';
+import { useApp } from '../context/AppContext';
+import { Proyecto, DiagnosticoIA } from '../types/database';
+import { 
+  ShieldCheck, 
+  AlertTriangle, 
+  CheckCircle2, 
+  Droplets, 
+  Activity, 
+  FileCheck, 
+  Layers, 
+  Building2, 
+  Clock, 
+  Sparkles,
+  Award
+} from 'lucide-react';
+
+export const QualityReviewModule: React.FC = () => {
+  const { 
+    proyectos, 
+    guardarDiagnosticoCalidad, 
+    currentUser, 
+    selectedProyecto, 
+    setSelectedProyecto, 
+    showToast,
+    theme
+  } = useApp();
+
+  const isLight = theme === 'light';
+
+  const [activeProject, setActiveProject] = useState<Proyecto>(
+    selectedProyecto || proyectos.find(p => p.estadoPipeline === 'revision_calidad') || proyectos[0]
+  );
+
+  // Perito evaluation form state
+  const existingDiag = activeProject?.diagnostico;
+  const [humedad, setHumedad] = useState<number>(existingDiag?.humedadRelativa || 8.5);
+  const [fisuras, setFisuras] = useState<NonNullable<DiagnosticoIA['severidadFisuras']>>(
+    existingDiag?.severidadFisuras || 'Sin fisuras'
+  );
+  const [patologia, setPatologia] = useState<string>(
+    existingDiag?.patologiaDetectada || 'Superficie estándar apta con rugosidad media'
+  );
+  const [sistema, setSistema] = useState<string>(
+    existingDiag?.sistemaRecomendado || '1 Mano Sellador Fijador Antialcalino + 2 Manos Pintura Elastómero'
+  );
+  const [notasPerito, setNotasPerito] = useState<string>(
+    existingDiag?.notasPerito || 'Inspección de adherencia y sustrato conforme a norma NTC 1335.'
+  );
+
+  const handleSelectProject = (p: Proyecto) => {
+    setActiveProject(p);
+    setSelectedProyecto(p);
+    if (p.diagnostico) {
+      setHumedad(p.diagnostico.humedadRelativa || 8.5);
+      setFisuras(p.diagnostico.severidadFisuras || 'Sin fisuras');
+      setPatologia(p.diagnostico.patologiaDetectada || '');
+      setSistema(p.diagnostico.sistemaRecomendado || '');
+      setNotasPerito(p.diagnostico.notasPerito || '');
+    }
+  };
+
+  const handleSaveVerdict = (aprobado: boolean) => {
+    if (!activeProject) return;
+
+    guardarDiagnosticoCalidad(activeProject.proyectoId, {
+      humedadRelativa: Number(humedad),
+      severidadFisuras: fisuras,
+      patologiaDetectada: patologia,
+      sistemaRecomendado: sistema,
+      notasPerito,
+      aprobadoCalidad: aprobado,
+      peritoNombre: currentUser ? `${currentUser.nombre} ${currentUser.apellido}` : 'Ing. Andrés Felipe Ospina',
+    });
+
+    // Update active project instance
+    const updated = proyectos.find(p => p.proyectoId === activeProject.proyectoId);
+    if (updated) {
+      setActiveProject(updated);
+    }
+  };
+
+  const getHumidityStatus = (val: number) => {
+    if (val < 10) return { label: 'Óptimo para Pintar (<10%)', color: 'text-emerald-400 bg-emerald-950/60 border-emerald-500/40' };
+    if (val <= 14) return { label: 'Precaución (10% - 14%)', color: 'text-amber-400 bg-amber-950/60 border-amber-500/40' };
+    return { label: 'Crítico / No Apto (>14%)', color: 'text-rose-400 bg-rose-950/60 border-rose-500/40' };
+  };
+
+  const humStatus = getHumidityStatus(humedad);
+
+  return (
+    <div className="space-y-6">
+      {/* Header Banner */}
+      <div className={`border rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+        isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#091526] border-slate-800 text-white shadow-xl'
+      }`}>
+        <div>
+          <div className="flex items-center gap-2 text-amber-500 text-xs font-bold uppercase tracking-wider mb-1">
+            <ShieldCheck className="w-4 h-4" />
+            Control de Calidad Técnica & Laboratorio en Terreno
+          </div>
+          <h2 className={`text-2xl md:text-3xl font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+            Validación de Sustrato & Dictamen de Perito
+          </h2>
+          <p className={`text-sm mt-1 max-w-2xl ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+            Inspección rigurosa de humedad relativa, fisuración y compatibilidad química antes de la tintometría y el despacho de cuñetes.
+          </p>
+        </div>
+
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs border ${
+          isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-slate-700/80'
+        }`}>
+          <Award className="w-4 h-4 text-emerald-500" />
+          <div>
+            <span className={`block text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Perito en Turno:</span>
+            <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{currentUser?.nombre} ({currentUser?.rol.rol})</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Grid: Projects Queue on Left (4 cols), Inspection Lab on Right (8 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* Left: Queue of Projects */}
+        <div className="lg:col-span-4 space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <span className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              Cola de Proyectos ({proyectos.length})
+            </span>
+          </div>
+
+          <div className="space-y-2.5 max-h-[750px] overflow-y-auto pr-1">
+            {proyectos.map((p) => {
+              const isSelected = activeProject?.proyectoId === p.proyectoId;
+              const isPending = p.estadoPipeline === 'revision_calidad';
+              const diag = p.diagnostico;
+
+              return (
+                <div
+                  key={p.proyectoId}
+                  onClick={() => handleSelectProject(p)}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                    isSelected
+                      ? isLight
+                        ? 'bg-amber-50/70 border-amber-500 shadow-sm'
+                        : 'bg-slate-900 border-amber-500/80 shadow-lg shadow-amber-500/10'
+                      : isLight
+                        ? 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
+                        : 'bg-[#091526] border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    {isPending ? (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border flex items-center gap-1 animate-pulse ${
+                        isLight ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-950/80 text-amber-300 border-amber-500/50'
+                      }`}>
+                        <Clock className="w-3 h-3" />
+                        Requiere Dictamen
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                        isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 text-slate-300 border-slate-700'
+                      }`}>
+                        {p.estadoPipeline.replace(/_/g, ' ')}
+                      </span>
+                    )}
+
+                    {diag?.aprobadoCalidad ? (
+                      <span className="text-[10px] font-semibold text-emerald-500 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Aprobado
+                      </span>
+                    ) : diag?.fechaVeredicto ? (
+                      <span className="text-[10px] font-semibold text-rose-500 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Con Reparos
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <h4 className={`text-sm font-bold leading-snug line-clamp-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    {p.nombreProyecto}
+                  </h4>
+
+                  <div className={`flex items-center gap-1.5 text-xs mt-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    <Building2 className="w-3 h-3 text-slate-400" />
+                    <span className="truncate">{p.empresa?.razonSocial}</span>
+                  </div>
+
+                  <div className={`flex items-center justify-between text-xs mt-3 pt-2.5 border-t ${
+                    isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/80 text-slate-400'
+                  }`}>
+                    <span className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                      {p.ambiente} ({p.area} m²)
+                    </span>
+                    <span className="font-mono text-emerald-500 text-[11px]">
+                      {diag?.humedadRelativa ? `${diag.humedadRelativa}% Hum.` : 'Sin Medición'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right: Technical Inspection Console */}
+        {activeProject ? (
+          <div className="lg:col-span-8 space-y-6">
+            
+            {/* Top Project Badge */}
+            <div className={`border rounded-2xl p-6 shadow-sm transition-all ${
+              isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#091526] border-slate-800 text-white shadow-xl'
+            }`}>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div>
+                  <span className="text-xs text-amber-500 font-semibold tracking-wider uppercase block">
+                    Protocolo de Calidad NTC 1335
+                  </span>
+                  <h3 className={`text-xl md:text-2xl font-bold mt-0.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    {activeProject.nombreProyecto}
+                  </h3>
+                  <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Cliente: <span className={`font-medium ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{activeProject.empresa?.razonSocial}</span> • Dirección: <span className={isLight ? 'text-slate-700' : 'text-slate-200'}>{activeProject.empresa?.direccionDespacho}</span>
+                  </p>
+                </div>
+
+                {activeProject.diagnostico?.aprobadoCalidad ? (
+                  <div className={`px-3.5 py-1.5 rounded-xl border font-bold text-xs flex items-center gap-2 ${
+                    isLight 
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+                      : 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                  }`}>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    <span>CERTIFICADO APROBADO</span>
+                  </div>
+                ) : (
+                  <div className={`px-3.5 py-1.5 rounded-xl border font-bold text-xs flex items-center gap-2 ${
+                    isLight 
+                      ? 'bg-amber-50 text-amber-800 border-amber-300' 
+                      : 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                  }`}>
+                    <Clock className="w-4 h-4 text-amber-500 animate-spin" />
+                    <span>EN AUDITORÍA TÉCNICA</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Physical Parameters Form */}
+              <div className={`space-y-5 pt-3 border-t ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+                
+                {/* 1. Medición de Humedad Relativa */}
+                <div className={`border rounded-xl p-4 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className={`text-xs font-bold flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      <Droplets className="w-4 h-4 text-sky-500" />
+                      Medición Higrométrica de Humedad en Muro (%)
+                    </label>
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-md border font-mono ${humStatus.color}`}>
+                      {humStatus.label}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-4 mt-3">
+                    <input
+                      type="range"
+                      min={2}
+                      max={24}
+                      step={0.1}
+                      value={humedad}
+                      onChange={(e) => setHumedad(Number(e.target.value))}
+                      className="flex-1 accent-emerald-500 h-2 bg-slate-300 dark:bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                    <div className={`w-20 border rounded-lg py-1 px-2 text-center font-mono font-bold text-lg ${
+                      isLight ? 'bg-white border-slate-300 text-emerald-600' : 'bg-slate-950 border-slate-700 text-emerald-400'
+                    }`}>
+                      {humedad}%
+                    </div>
+                  </div>
+                  <p className={`text-[11px] mt-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Pinturas vinílicas y acrílicas exigen humedad &lt;12%. Recubrimientos epóxicos de pisos exigen &lt;5%.
+                  </p>
+                </div>
+
+                {/* 2. Fisuración y Sustrato */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                      Severidad de Fisuras en el Sustrato
+                    </label>
+                    <select
+                      value={fisuras}
+                      onChange={(e) => setFisuras(e.target.value as any)}
+                      className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none focus:border-amber-500 border ${
+                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                      }`}
+                    >
+                      <option value="Sin fisuras">Sin fisuras (Sustrato liso y firme)</option>
+                      <option value="Fisuración capilar <0.2mm">Fisuración capilar &lt;0.2mm (Tratable con elastómero)</option>
+                      <option value="Fisura activa 0.5-1mm">Fisura activa 0.5-1mm (Requiere masilla elastomérica)</option>
+                      <option value="Grieta estructural >2mm">Grieta estructural &gt;2mm (Requiere intervención civil)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                      Diagnóstico de Patología Detectada
+                    </label>
+                    <input
+                      type="text"
+                      value={patologia}
+                      onChange={(e) => setPatologia(e.target.value)}
+                      placeholder="ej. Porosidad media por intemperismo en fachada sur"
+                      className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none focus:border-amber-500 border ${
+                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Sistema Técnico Recomendado */}
+                <div>
+                  <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    Sistema Técnico Homologado por el Perito
+                  </label>
+                  <input
+                    type="text"
+                    value={sistema}
+                    onChange={(e) => setSistema(e.target.value)}
+                    placeholder="ej. 1 Mano Imprimante Antialcalino + 2 Manos Elastómero Fachadas"
+                    className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none focus:border-amber-500 border ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                    }`}
+                  />
+                </div>
+
+                {/* 4. Notas del Perito */}
+                <div>
+                  <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    Dictamen Técnico & Notas Oficiales de Inspección
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={notasPerito}
+                    onChange={(e) => setNotasPerito(e.target.value)}
+                    placeholder="Escribe las consideraciones técnicas para el aplicador de obra y el despacho..."
+                    className={`w-full rounded-lg p-3 text-xs focus:outline-none focus:border-amber-500 border ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                    }`}
+                  />
+                </div>
+
+                {/* Digital Stamp Certificate info */}
+                <div className={`border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    <FileCheck className="w-5 h-5 text-emerald-500" />
+                    <div>
+                      <span className={`text-xs font-bold block ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        Firma Digital del Perito Responsable
+                      </span>
+                      <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {existingDiag?.peritoNombre || currentUser?.nombre || 'Ing. Andrés Felipe Ospina'} • ColorLink S.A.S.
+                      </span>
+                    </div>
+                  </div>
+
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    ID Registro: {existingDiag?.diagnosticoId || 'PENDIENTE-EMISIÓN'}
+                  </span>
+                </div>
+
+                {/* Verdict Buttons */}
+                <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveVerdict(false)}
+                    className="flex-1 py-3 px-4 bg-rose-950/40 hover:bg-rose-950 border border-rose-600/50 text-rose-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                    <span>Rechazar Sustrato / Solicitar Corrección</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSaveVerdict(true)}
+                    className="flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                    <span>Aprobar Sustrato y Autorizar Tintometría</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
