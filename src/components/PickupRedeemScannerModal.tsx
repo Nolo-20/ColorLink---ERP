@@ -21,15 +21,14 @@ export const PickupRedeemScannerModal: React.FC = () => {
     setRedeemModalOpen, 
     canjearCodigoRetiro, 
     pedidos, 
-    sucursales, 
     currentUser 
   } = useApp();
 
-  const [inputCode, setInputCode] = useState('RET-8421');
-  const [selectedSucursal, setSelectedSucursal] = useState(sucursales[0].nombre);
+  const [inputCode, setInputCode] = useState('');
   const [resultPedido, setResultPedido] = useState<PedidoTienda | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   if (!redeemModalOpen) return null;
 
@@ -38,15 +37,20 @@ export const PickupRedeemScannerModal: React.FC = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const cleanCode = inputCode.trim().toUpperCase();
-    const found = pedidos.find(p => 
-      p.codigoRetiro?.toUpperCase() === cleanCode || 
-      p.qrCodeData?.toUpperCase().includes(cleanCode) ||
-      p.pedidoId.toUpperCase() === cleanCode
-    );
+    // Coincidencia exacta: el código corto de 8 caracteres, el código completo del QR o el número de pedido
+    const cleanCode = inputCode.trim().replace(/\s+/g, '').toUpperCase();
+    const found = cleanCode
+      ? pedidos.find(p =>
+          p.modalidadEntrega === 'recogida_sucursal' && (
+            p.codigoRetiro?.toUpperCase() === cleanCode ||
+            p.qrCodeData?.toUpperCase() === cleanCode ||
+            p.pedidoId.toUpperCase() === cleanCode
+          )
+        )
+      : undefined;
 
     if (!found) {
-      setErrorMessage(`No se encontró ningún pedido con el código "${inputCode}". Verifica con el cliente.`);
+      setErrorMessage(`No se encontró ningún pedido de retiro con el código "${inputCode}". Verifica con el cliente.`);
       setResultPedido(null);
       return;
     }
@@ -54,9 +58,13 @@ export const PickupRedeemScannerModal: React.FC = () => {
     setResultPedido(found);
   };
 
-  const handleConfirmRedemption = () => {
-    if (!resultPedido) return;
-    const res = canjearCodigoRetiro(inputCode, selectedSucursal);
+  const handleConfirmRedemption = async () => {
+    if (!resultPedido || confirming) return;
+    setConfirming(true);
+    setErrorMessage(null);
+    // Se envía el código completo del QR: no hay ambigüedad posible
+    const res = await canjearCodigoRetiro(resultPedido.qrCodeData || resultPedido.codigoRetiro || inputCode);
+    setConfirming(false);
     if (res.success) {
       setSuccessMessage(res.message);
       if (res.pedido) {
@@ -99,25 +107,6 @@ export const PickupRedeemScannerModal: React.FC = () => {
         {/* Modal Body */}
         <div className="overflow-y-auto space-y-5 my-4 pr-1 flex-1">
           
-          {/* Branch Selector */}
-          <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl space-y-2">
-            <label className="block text-xs font-bold text-slate-300 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-400" />
-              <span>Sucursal ColorLink de Atención Actual:</span>
-            </label>
-            <select
-              value={selectedSucursal}
-              onChange={(e) => setSelectedSucursal(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
-            >
-              {sucursales.map(s => (
-                <option key={s.id} value={s.nombre}>
-                  {s.nombre} — {s.direccion} ({s.ciudad})
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* Code Search Input Form */}
           <form onSubmit={handleSearchAndValidate} className="space-y-3">
             <div>
@@ -131,7 +120,9 @@ export const PickupRedeemScannerModal: React.FC = () => {
                     required
                     value={inputCode}
                     onChange={(e) => setInputCode(e.target.value)}
-                    placeholder="ej. RET-8421 o escanea el QR"
+                    placeholder="Código de 8 caracteres o escanea el QR"
+                    autoFocus
+                    autoComplete="off"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-emerald-300 focus:outline-none focus:border-emerald-500 uppercase"
                   />
                 </div>
@@ -149,7 +140,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
             {waitingPickupOrders.length > 0 && (
               <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-xs">
                 <span className="text-slate-400 font-semibold block mb-1.5 text-[11px]">
-                  Códigos pendientes de retiro para pruebas rápidas:
+                  Pedidos listos para entregar en mostrador:
                 </span>
                 <div className="flex flex-wrap gap-2">
                   {waitingPickupOrders.map(p => (
@@ -198,9 +189,17 @@ export const PickupRedeemScannerModal: React.FC = () => {
                   <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
                     resultPedido.estadoPedido === 'entregado_recogido'
                       ? 'bg-emerald-950 text-emerald-300 border-emerald-500/50'
-                      : 'bg-amber-950 text-amber-300 border-amber-500/50 animate-pulse'
+                      : resultPedido.estadoPedido === 'listo_sucursal'
+                        ? 'bg-amber-950 text-amber-300 border-amber-500/50 animate-pulse'
+                        : 'bg-slate-800 text-slate-300 border-slate-600'
                   }`}>
-                    {resultPedido.estadoPedido === 'entregado_recogido' ? 'Ya Reclamado / Entregado' : 'Listo para Retiro en Sucursal'}
+                    {resultPedido.estadoPedido === 'entregado_recogido'
+                      ? 'Ya Reclamado / Entregado'
+                      : resultPedido.estadoPedido === 'listo_sucursal'
+                        ? 'Listo para Retiro en Sucursal'
+                        : resultPedido.estadoPedido === 'cancelado'
+                          ? 'Pedido Cancelado'
+                          : 'Aún no está listo'}
                   </span>
                 </div>
 
@@ -224,7 +223,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Sucursal de Retiro Seleccionada</span>
                   <p className="font-bold text-white text-xs">{resultPedido.sucursalRetiro}</p>
-                  <p className="text-slate-400">Método de Pago: <strong className="text-slate-200">{resultPedido.metodoPago}</strong></p>
+                  <p className="text-slate-400">Entrega: <strong className="text-slate-200">Retiro en sucursal</strong></p>
                   <p className="text-slate-400">Código Asignado: <strong className="font-mono text-emerald-400">{resultPedido.codigoRetiro}</strong></p>
                 </div>
               </div>
@@ -267,15 +266,24 @@ export const PickupRedeemScannerModal: React.FC = () => {
               </div>
 
               {/* Action Button: Confirm Delivery */}
-              {resultPedido.estadoPedido !== 'entregado_recogido' ? (
+              {resultPedido.estadoPedido === 'cancelado' ? (
+                <div className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-xl text-xs text-rose-300 font-bold">
+                  Este pedido fue cancelado: no se puede entregar.
+                </div>
+              ) : resultPedido.estadoPedido !== 'entregado_recogido' && resultPedido.estadoPedido !== 'listo_sucursal' ? (
+                <div className="p-3 bg-amber-950/50 border border-amber-500/40 rounded-xl text-xs text-amber-200">
+                  El pedido todavía no está alistado. Primero márcalo como <strong>Listo para recoger</strong> en el módulo de Pedidos.
+                </div>
+              ) : resultPedido.estadoPedido !== 'entregado_recogido' ? (
                 <div className="pt-2">
                   <button
                     type="button"
                     onClick={handleConfirmRedemption}
-                    className="w-full py-3.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={confirming}
+                    className="w-full py-3.5 bg-[#00D285] hover:bg-[#00c078] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <CheckCircle2 className="w-5 h-5 text-slate-950" />
-                    <span>Confirmar Entrega en Mostrador y Finalizar Pedido</span>
+                    <span>{confirming ? 'Validando…' : 'Confirmar Entrega en Mostrador y Finalizar Pedido'}</span>
                   </button>
                   <p className="text-center text-[10px] text-slate-400 mt-2">
                     Responsable de la entrega: <strong className="text-white">{currentUser?.nombre} ({currentUser?.rol.rol})</strong>
@@ -284,7 +292,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
               ) : (
                 <div className="p-3 bg-emerald-950/60 border border-emerald-500/50 rounded-xl text-xs flex items-center justify-between">
                   <span className="text-emerald-300 font-bold">
-                    ✓ Entregado por {resultPedido.canjeadoPor || 'Cajero'} en {resultPedido.canjeadoEnSucursal || selectedSucursal}
+                    ✓ Entregado por {resultPedido.canjeadoPor || 'Personal de sucursal'}{resultPedido.sucursalRetiro ? ` • ${resultPedido.sucursalRetiro}` : ''}
                   </span>
                   <span className="text-[11px] font-mono text-slate-400">
                     {resultPedido.fechaCanje ? new Date(resultPedido.fechaCanje).toLocaleString('es-CO') : 'Canjeado'}

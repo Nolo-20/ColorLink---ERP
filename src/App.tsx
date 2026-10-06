@@ -20,8 +20,20 @@ import { UserProfileModal } from './components/UserProfileModal';
 import { CheckCircle2 } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
-  const { currentUser, activeTab, toastMessage, theme } = useApp();
+  const { currentUser, authLoading, activeTab, toastMessage, theme } = useApp();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Mientras se verifica la sesión guardada en el servidor
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#050C18] text-slate-300 font-['Plus_Jakarta_Sans',sans-serif]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-emerald-500/30 border-t-emerald-400 animate-spin" />
+          <span className="text-xs font-semibold">Conectando con ColorLink…</span>
+        </div>
+      </div>
+    );
+  }
 
   // If user is not logged in, render the login screen
   if (!currentUser) {
@@ -67,7 +79,6 @@ const MainLayout: React.FC = () => {
           {activeTab === 'pipeline' && <PipelineTraceability />}
           {activeTab === 'proyectos' && <AdvisorProjectManager />}
           {activeTab === 'pedidos' && <OrdersStoreView />}
-          {activeTab === 'tienda_cliente' && <OrdersStoreView />}
           {activeTab === 'canje_sucursal' && <OrdersStoreView />}
           {activeTab === 'calidad' && <QualityReviewModule />}
           {activeTab === 'inventarios' && <InventoryModule />}

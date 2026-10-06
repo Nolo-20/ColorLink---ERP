@@ -12,6 +12,13 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // En desarrollo las llamadas a /api van al backend de ColorLink (mismo origen, igual que con nginx en producción)
+      proxy: {
+        '/api': {
+          target: process.env.COLORLINK_API || 'http://localhost:3000',
+          changeOrigin: true,
+        },
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

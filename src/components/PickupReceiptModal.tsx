@@ -30,7 +30,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
   );
 
   const latestQuote = proyecto.cotizaciones && proyecto.cotizaciones[0];
-  const isDelivered = proyecto.estadoPipeline === 'entregado';
+  const isDelivered = !!proyecto.despacho?.fechaEntrega;
 
   const handleConfirmSignature = (e: React.FormEvent) => {
     e.preventDefault();

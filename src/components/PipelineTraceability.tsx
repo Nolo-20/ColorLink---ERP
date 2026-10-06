@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Proyecto, EstadoPipeline } from '../types/database';
+import { ESTADO_PROYECTO_LABEL, ESTADO_PROYECTO_BADGE, ESTADOS_PROYECTO_CERRADOS } from '../estados';
 import { 
   CheckCircle2, 
   Clock, 
@@ -29,64 +30,38 @@ interface StageConfig {
   description: string;
 }
 
-const STAGES: StageConfig[] = [
-  {
-    key: 'diagnostico_creado',
-    label: '1. Diagnóstico Inicial',
-    badgeColor: 'border-slate-600 bg-slate-900/80 text-slate-300',
-    icon: Clock,
-    description: 'Levantamiento de área y patología del sustrato',
-  },
-  {
-    key: 'cotizacion_generada',
-    label: '2. Cotización Técnica',
-    badgeColor: 'border-indigo-600/50 bg-indigo-950/40 text-indigo-300',
-    icon: FileText,
-    description: 'Cálculo de cuñetes (5G), galones (1G) y descuento asesor',
-  },
-  {
-    key: 'revision_calidad',
-    label: '3. Revisión Calidad',
-    badgeColor: 'border-amber-500/50 bg-amber-950/40 text-amber-300',
-    icon: ShieldCheck,
-    description: 'Verificación de humedad, fisuras y dictamen de perito',
-  },
-  {
-    key: 'aprobado_cliente',
-    label: '4. Aprobado Comercial',
-    badgeColor: 'border-emerald-600/50 bg-emerald-950/40 text-emerald-300',
-    icon: CheckCircle2,
-    description: 'Confirmación comercial de la constructora',
-  },
-  {
-    key: 'tintometria',
-    label: '5. Tintometría Lab',
-    badgeColor: 'border-cyan-500/50 bg-cyan-950/40 text-cyan-300',
-    icon: Droplets,
-    description: 'Formulación computarizada de color y dosificación de pigmentos',
-  },
-  {
-    key: 'alistamiento_bodega',
-    label: '6. Alistamiento Bodega',
-    badgeColor: 'border-blue-500/50 bg-blue-950/40 text-blue-300',
-    icon: Layers,
-    description: 'Embalaje de cuñetes y asignación de lote en bodega',
-  },
-  {
-    key: 'en_ruta_despacho',
-    label: '7. En Ruta Despacho',
-    badgeColor: 'border-orange-500/50 bg-orange-950/40 text-orange-300',
-    icon: Truck,
-    description: 'Vehículo en tránsito por el Valle de Aburrá',
-  },
-  {
-    key: 'entregado',
-    label: '8. Entregado en Obra',
-    badgeColor: 'border-emerald-500 bg-emerald-900/60 text-emerald-200',
-    icon: CheckCircle2,
-    description: 'Recibo a satisfacción con remisión firmada',
-  },
-];
+const STAGE_ICON: Record<EstadoPipeline, React.ElementType> = {
+  en_revision: Clock,
+  imagen_por_corregir: AlertCircle,
+  en_peritaje: ShieldCheck,
+  cotizado: FileText,
+  aprobado_calidad: CheckCircle2,
+  rechazado: AlertCircle,
+  despachado: Truck,
+  cancelado: X,
+};
+
+const STAGE_DESCRIPTION: Record<EstadoPipeline, string> = {
+  en_revision: 'El equipo comercial revisa la solicitud del cliente',
+  imagen_por_corregir: 'Se pidió al cliente subir otra imagen',
+  en_peritaje: 'El perito verifica humedad, fisuras y adherencia',
+  cotizado: 'Cotización técnica enviada al cliente',
+  aprobado_calidad: 'Aprobado por calidad, listo para despachar',
+  rechazado: 'Calidad pidió ajustes técnicos',
+  despachado: 'Material enviado a la obra',
+  cancelado: 'Proyecto cerrado sin despacho',
+};
+
+const STAGES: StageConfig[] = (Object.keys(ESTADO_PROYECTO_LABEL) as EstadoPipeline[]).map(key => ({
+  key,
+  label: ESTADO_PROYECTO_LABEL[key],
+  badgeColor: ESTADO_PROYECTO_BADGE[key],
+  icon: STAGE_ICON[key],
+  description: STAGE_DESCRIPTION[key],
+}));
+
+/** Estados que puede fijar a mano el equipo comercial (el resto los define Calidad, Despachos o el flujo de imagen). */
+const ESTADOS_MANUALES: EstadoPipeline[] = ['en_revision', 'en_peritaje', 'cotizado', 'cancelado'];
 
 export const PipelineTraceability: React.FC = () => {
   const { 
@@ -107,39 +82,29 @@ export const PipelineTraceability: React.FC = () => {
 
   const [modalHistoryProject, setModalHistoryProject] = useState<Proyecto | null>(null);
   const [modalChangeStatusProject, setModalChangeStatusProject] = useState<Proyecto | null>(null);
-  const [targetStatus, setTargetStatus] = useState<EstadoPipeline>('revision_calidad');
+  const [targetStatus, setTargetStatus] = useState<EstadoPipeline>('en_peritaje');
   const [statusNote, setStatusNote] = useState<string>('');
-  const [selectedBodega, setSelectedBodega] = useState<string>('Bodega Central Guayabal (Medellín)');
 
   const filteredProyectos = activeStageFilter === 'all' 
     ? proyectos 
     : proyectos.filter(p => p.estadoPipeline === activeStageFilter);
 
+  const puedeCambiarEstado = (p: Proyecto) =>
+    (currentUser?.rol.rol === 'Administrador' || currentUser?.rol.rol === 'Asesor Comercial') &&
+    !ESTADOS_PROYECTO_CERRADOS.includes(p.estadoPipeline);
+
   const handleOpenStatusModal = (p: Proyecto) => {
     setModalChangeStatusProject(p);
-    // Suggest the next logic step
-    const currentIndex = STAGES.findIndex(s => s.key === p.estadoPipeline);
-    const nextStage = STAGES[Math.min(currentIndex + 1, STAGES.length - 1)].key;
-    setTargetStatus(nextStage);
-    setStatusNote(`Transición de estado autorizada por ${currentUser?.nombre || 'usuario activo'}.`);
+    const sugerido = ESTADOS_MANUALES.find(e => e !== p.estadoPipeline && e !== 'cancelado') || 'en_peritaje';
+    setTargetStatus(p.estadoPipeline === 'en_revision' ? 'cotizado' : sugerido);
+    setStatusNote('');
   };
 
-  const handleConfirmStatusChange = (e: React.FormEvent) => {
+  const handleConfirmStatusChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!modalChangeStatusProject) return;
-
-    cambiarEstadoProyecto(
-      modalChangeStatusProject.proyectoId,
-      targetStatus,
-      statusNote,
-      {
-        bodega: selectedBodega,
-        numeroGuia: modalChangeStatusProject.despacho?.numeroGuia,
-        placa: modalChangeStatusProject.despacho?.placaVehiculo,
-      }
-    );
-
-    setModalChangeStatusProject(null);
+    const ok = await cambiarEstadoProyecto(modalChangeStatusProject.proyectoId, targetStatus, statusNote);
+    if (ok) setModalChangeStatusProject(null);
   };
 
   const handleInspectProject = (p: Proyecto) => {
@@ -222,7 +187,7 @@ export const PipelineTraceability: React.FC = () => {
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
-                <span>{s.label.split('. ')[1]}</span>
+                <span>{s.label}</span>
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                   activeStageFilter === s.key 
                     ? 'bg-slate-950 text-emerald-300' 
@@ -377,7 +342,7 @@ export const PipelineTraceability: React.FC = () => {
                       <UserCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
                       <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Asesor:</span>
                       <span className={`font-bold text-[11px] truncate ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                        {proy.asesorAsignado?.nombre || 'Valentina Gómez'}
+                        {proy.asesorAsignado ? `${proy.asesorAsignado.nombre} ${proy.asesorAsignado.apellido}` : 'Sin asignar'}
                       </span>
                     </div>
                     <button
@@ -398,6 +363,7 @@ export const PipelineTraceability: React.FC = () => {
               {/* Bottom Action Bar */}
               <div className={`pt-3 border-t space-y-2 ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                 <div className="grid grid-cols-2 gap-2">
+                  {puedeCambiarEstado(proy) ? (
                   <button
                     onClick={() => handleOpenStatusModal(proy)}
                     className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
@@ -405,6 +371,11 @@ export const PipelineTraceability: React.FC = () => {
                     <span>Cambiar Estado</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
+                  ) : (
+                    <div className={`w-full py-2 text-center text-[11px] rounded-lg border ${isLight ? 'border-slate-200 text-slate-400' : 'border-slate-800 text-slate-500'}`}>
+                      Sin cambios disponibles
+                    </div>
+                  )}
 
                   <button
                     onClick={() => setModalHistoryProject(proy)}
@@ -428,7 +399,7 @@ export const PipelineTraceability: React.FC = () => {
                     <span>Ver Detalles</span>
                   </button>
 
-                  {proy.estadoPipeline === 'revision_calidad' && (
+                  {proy.estadoPipeline === 'en_peritaje' && (
                     <button
                       onClick={() => handleInspectQuality(proy)}
                       className="text-amber-500 hover:underline flex items-center gap-1 cursor-pointer font-medium"
@@ -438,7 +409,7 @@ export const PipelineTraceability: React.FC = () => {
                     </button>
                   )}
 
-                  {(proy.estadoPipeline === 'en_ruta_despacho' || proy.estadoPipeline === 'entregado') && (
+                  {(proy.estadoPipeline === 'aprobado_calidad' || proy.estadoPipeline === 'despachado') && (
                     <button
                       onClick={() => handleInspectDispatch(proy)}
                       className="text-sky-500 hover:underline flex items-center gap-1 cursor-pointer font-medium"
@@ -487,50 +458,18 @@ export const PipelineTraceability: React.FC = () => {
                     isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
                   }`}
                 >
-                  {STAGES.map(s => (
+                  {STAGES.filter(s => ESTADOS_MANUALES.includes(s.key) && s.key !== modalChangeStatusProject.estadoPipeline).map(s => (
                     <option key={s.key} value={s.key}>
                       {s.label} ({s.description})
                     </option>
                   ))}
                 </select>
 
-                <div className={`mt-2 p-2 rounded-lg border text-[11px] flex items-center justify-between ${
-                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'
-                }`}>
-                  <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>Rol Autorizado para este Estado:</span>
-                  <span className="font-bold text-emerald-500">
-                    {targetStatus === 'diagnostico_creado' && 'Asesor Comercial / Cliente'}
-                    {targetStatus === 'cotizacion_generada' && 'Asesor Comercial'}
-                    {targetStatus === 'revision_calidad' && 'Perito de Calidad (Dictamen Técnico)'}
-                    {targetStatus === 'aprobado_cliente' && 'Asesor Comercial / Constructora'}
-                    {targetStatus === 'tintometria' && 'Jefe de Bodega / Laboratorio Tintometría'}
-                    {targetStatus === 'alistamiento_bodega' && 'Jefe de Despachos / Bodega'}
-                    {targetStatus === 'en_ruta_despacho' && 'Jefe de Despachos (Asigna Vehículo)'}
-                    {targetStatus === 'entregado' && 'Jefe de Despachos / Conductor / Obra'}
-                  </span>
-                </div>
+                <p className={`mt-2 text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Los estados de calidad (aprobado / rechazado), imagen por corregir y despachado se registran desde sus módulos.
+                </p>
               </div>
 
-              {/* Bodega selection if reaching tintometria or alistamiento */}
-              {(targetStatus === 'tintometria' || targetStatus === 'alistamiento_bodega' || targetStatus === 'en_ruta_despacho') && (
-                <div>
-                  <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Bodega Responsable en Valle de Aburrá
-                  </label>
-                  <select
-                    value={selectedBodega}
-                    onChange={(e) => setSelectedBodega(e.target.value)}
-                    className={`w-full rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
-                  >
-                    <option value="Bodega Central Guayabal (Medellín)">Bodega Central Guayabal (Medellín)</option>
-                    <option value="Bodega Zona Sur (Itagüí Industrial)">Bodega Zona Sur (Itagüí Industrial)</option>
-                    <option value="Bodega Norte Niquía (Bello)">Bodega Norte Niquía (Bello)</option>
-                    <option value="Bodega Oriente (Rionegro)">Bodega Oriente (Rionegro)</option>
-                  </select>
-                </div>
-              )}
 
               <div>
                 <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
@@ -540,7 +479,6 @@ export const PipelineTraceability: React.FC = () => {
                   value={statusNote}
                   onChange={(e) => setStatusNote(e.target.value)}
                   rows={3}
-                  required
                   placeholder="Detalla las observaciones técnicas o logísticas para la trazabilidad..."
                   className={`w-full rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 border ${
                     isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
@@ -644,7 +582,7 @@ export const PipelineTraceability: React.FC = () => {
                       <div className="text-xs text-emerald-600 dark:text-emerald-300 font-medium mb-1 flex items-center gap-1.5">
                         <span>Estado:</span>
                         <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] uppercase tracking-wider font-bold">
-                          {mov.estadoNuevo.replace(/_/g, ' ')}
+                          {ESTADO_PROYECTO_LABEL[mov.estadoNuevo] || mov.estadoNuevo}
                         </span>
                       </div>
 

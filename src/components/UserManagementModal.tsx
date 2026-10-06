@@ -31,7 +31,7 @@ export const UserManagementModal: React.FC = () => {
   const [telefono, setTelefono] = useState('');
   const [documentId, setDocumentId] = useState('');
   const [rolNombre, setRolNombre] = useState<UserRole>('Asesor Comercial');
-  const [password, setPassword] = useState('ColorLink2026*');
+  const [password, setPassword] = useState('');
   const [company, setCompany] = useState('ColorLink S.A.S. - Valle de Aburrá');
   const [city, setCity] = useState('Medellín');
   const [activeSubTab, setActiveSubTab] = useState<'create' | 'list'>('create');

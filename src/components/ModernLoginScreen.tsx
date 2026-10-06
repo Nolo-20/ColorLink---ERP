@@ -41,8 +41,9 @@ export const ModernLoginScreen: React.FC = () => {
     loginWithEmailPassword
   } = useApp();
 
-  const [emailInput, setEmailInput] = useState('admin@colorlink.co');
-  const [passwordInput, setPasswordInput] = useState('ColorLink2026*');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [forgotPasswordNotice, setForgotPasswordNotice] = useState(false);
@@ -53,8 +54,9 @@ export const ModernLoginScreen: React.FC = () => {
     return REPRESENTATIVE_COMPANY_IMAGES[randomIndex];
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setErrorMessage(null);
 
     if (!emailInput.trim()) {
@@ -66,9 +68,12 @@ export const ModernLoginScreen: React.FC = () => {
       return;
     }
 
-    const res = loginWithEmailPassword(emailInput, passwordInput);
+    setSubmitting(true);
+    const res = await loginWithEmailPassword(emailInput, passwordInput);
+    setSubmitting(false);
     if (!res.success) {
       setErrorMessage(res.message);
+      setPasswordInput('');
     }
   };
 
@@ -163,6 +168,7 @@ export const ModernLoginScreen: React.FC = () => {
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
                     placeholder="tu-correo@empresa.com"
+                    autoComplete="username"
                     className="w-full bg-[#050C18] border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
                 </div>
@@ -179,6 +185,7 @@ export const ModernLoginScreen: React.FC = () => {
                       value={passwordInput}
                       onChange={(e) => setPasswordInput(e.target.value)}
                       placeholder="••••••••••••"
+                      autoComplete="current-password"
                       className="w-full bg-[#050C18] border border-slate-700/80 rounded-xl pl-4 pr-11 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
                     />
                     <button
@@ -196,9 +203,10 @@ export const ModernLoginScreen: React.FC = () => {
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full py-3 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
+                    disabled={submitting}
+                    className="w-full py-3 bg-[#00D285] hover:bg-[#00c078] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
                   >
-                    INGRESAR
+                    {submitting ? 'INGRESANDO…' : 'INGRESAR'}
                   </button>
                 </div>
               </form>
@@ -233,7 +241,7 @@ export const ModernLoginScreen: React.FC = () => {
               Recuperación de Contraseña
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Por políticas de seguridad interna de ColorLink, para restablecer tus credenciales debes comunicarte directamente con el <strong>Administrador de Sistemas</strong> o solicitar el reseteo en el módulo central de usuarios.
+              Por políticas de seguridad interna de ColorLink, para restablecer tus credenciales debes pedirle al <strong>Administrador</strong> que te asigne una contraseña temporal desde el módulo <em>Gestión de Empleados</em>. Después podrás cambiarla en <em>Mi Perfil</em>.
             </p>
             <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-xs space-y-1 font-mono text-slate-300">
               <p>Mesa de Ayuda: soporte@colorlink.co</p>
