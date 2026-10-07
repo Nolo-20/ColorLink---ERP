@@ -72,8 +72,8 @@ export const ModernLoginScreen: React.FC = () => {
     const res = await loginWithEmailPassword(emailInput, passwordInput);
     setSubmitting(false);
     if (!res.success) {
+      // La contraseña se conserva para poder verla con el ojo y corregirla
       setErrorMessage(res.message);
-      setPasswordInput('');
     }
   };
 
@@ -190,9 +190,12 @@ export const ModernLoginScreen: React.FC = () => {
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                      onClick={() => setShowPassword(v => !v)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
                       title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                      aria-pressed={showPassword}
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
