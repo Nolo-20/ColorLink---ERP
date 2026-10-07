@@ -5,9 +5,11 @@ El ERP es una app estática (React) servida por nginx. Todo lo que muestra viene
 
 ## Cómo encaja en el servidor
 
-`docker-compose.yml` del backend (repo ColorLink) define el servicio `erp`, que comparte la red del contenedor
-`colorlink-tailscale`. Por eso nginx llega al backend en `127.0.0.1:3000` y el ERP queda en el puerto `8080`
-del mismo nodo Tailscale.
+El ERP es **independiente de la tienda**: tiene su propio nodo de Tailscale (`colorlink-erp`) y su propia URL,
+`https://colorlink-erp.<tu-tailnet>.ts.net`, accesible solo desde dispositivos de tu tailnet.
+`docker-compose.yml` del backend (repo ColorLink) define `tailscale-erp` + `erp`. nginx sirve el ERP en el
+puerto 8080 y reenvía `/api` al backend por la red interna de Docker (`http://tailscale:3000`).
+La tienda sigue en `colorlink-web`; no comparten cookies de sesión.
 
 ## Pasos (en el servidor)
 
@@ -15,22 +17,20 @@ del mismo nodo Tailscale.
 # 1. Backend
 cd ~/ColorLink && git pull            # rama con los cambios del ERP
 pnpm install
-pnpm exec prisma migrate deploy       # crea el rol "despachos", tablas de historial/despacho y columnas nuevas
+pnpm exec prisma migrate deploy       # rol "despachos", tablas de historial/despacho y columnas nuevas
 pnpm exec prisma generate
 
-# 2. ERP al lado del backend
-cd ~ && git clone https://github.com/Nolo-20/ColorLink---ERP.git ColorLink-ERP   # o git pull si ya existe
+# 2. ERP al lado del backend (debe quedar en ~/ColorLink-ERP)
+cd ~/ColorLink-ERP && git pull
 
-# 3. Levantar todo
+# 3. Levantar todo (crea el nodo colorlink-erp en Tailscale la primera vez)
 cd ~/ColorLink && docker compose up -d --build
-
-# 4. HTTPS para el ERP (la cookie de sesión es Secure en producción)
-docker exec colorlink-tailscale tailscale serve --bg --https=8443 http://127.0.0.1:8080
 ```
 
-El ERP queda en `https://<nombre-del-nodo>.<tailnet>.ts.net:8443`.
+Requisito: `TS_AUTHKEY` en el `.env` debe ser una clave **reutilizable** (Tailscale → Settings → Keys → "Reusable"),
+porque ahora se registran dos nodos. El HTTPS lo configura solo `tailscale/erp-serve.json` (no hay que correr `tailscale serve`).
 
-> El compose espera el ERP en `../ColorLink-ERP`. Si lo clonaste en otra ruta, ajusta `build:` del servicio `erp`.
+El ERP queda en `https://colorlink-erp.<tu-tailnet>.ts.net`. El computador desde el que entres debe tener Tailscale conectado.
 
 ## Primer usuario de despachos / empleados
 
