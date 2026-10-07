@@ -6,7 +6,7 @@ El ERP es una app estática (React) servida por nginx. Todo lo que muestra viene
 ## Cómo encaja en el servidor
 
 El ERP es **independiente de la tienda**: tiene su propio nodo de Tailscale (`colorlink-erp`) y su propia URL,
-`https://colorlink-erp.<tu-tailnet>.ts.net`, accesible solo desde dispositivos de tu tailnet.
+`https://colorlink-erp.<tu-tailnet>.ts.net`, publico por Tailscale Funnel (los empleados entran desde cualquier lugar, sin instalar Tailscale).
 `docker-compose.yml` del backend (repo ColorLink) define `tailscale-erp` + `erp`. nginx sirve el ERP en el
 puerto 8080 y reenvía `/api` al backend por la red interna de Docker (`http://tailscale:3000`).
 La tienda sigue en `colorlink-web`; no comparten cookies de sesión.
@@ -30,7 +30,7 @@ cd ~/ColorLink && docker compose up -d --build
 Requisito: `TS_AUTHKEY` en el `.env` debe ser una clave **reutilizable** (Tailscale → Settings → Keys → "Reusable"),
 porque ahora se registran dos nodos. El HTTPS lo configura solo `tailscale/erp-serve.json` (no hay que correr `tailscale serve`).
 
-El ERP queda en `https://colorlink-erp.<tu-tailnet>.ts.net`. El computador desde el que entres debe tener Tailscale conectado.
+El ERP queda en `https://colorlink-erp.<tu-tailnet>.ts.net`. Al ser publico, la seguridad depende de las contrasenas de los empleados: usa contrasenas fuertes y desactiva (campo `activo`) a quien deje de trabajar contigo. Para volverlo privado, quita la linea `AllowFunnel` de `tailscale/erp-serve.json`.
 
 ## Primer usuario de despachos / empleados
 
