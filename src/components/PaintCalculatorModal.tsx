@@ -7,12 +7,25 @@ export const PaintCalculatorModal: React.FC = () => {
 
   const [area, setArea] = useState<number>(500);
   const [manos, setManos] = useState<number>(2);
-  const [productoId, setProductoId] = useState<string>(productos[0].productoId);
+  const [productoId, setProductoId] = useState<string>(productos[0]?.productoId || '');
   const [desperdicioPct, setDesperdicioPct] = useState<number>(6);
 
   if (!calculatorModalOpen) return null;
 
   const selectedProd = productos.find(p => p.productoId === productoId) || productos[0];
+
+  // El catálogo llega del servidor: si aún no carga o está vacío, no hay nada que calcular
+  if (!selectedProd) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="bg-[#0b172a] border border-slate-700 rounded-2xl w-full max-w-sm p-6 text-white text-sm">
+          <p className="mb-4 text-slate-300">El catálogo de productos aún no está disponible. Inténtalo de nuevo en unos segundos.</p>
+          <button onClick={() => setCalculatorModalOpen(false)} className="px-4 py-2 bg-emerald-500 text-slate-950 font-bold rounded-lg">Cerrar</button>
+        </div>
+      </div>
+    );
+  }
+
   const rendimientoM2 = selectedProd.rendimientoM2 || 45;
 
   // Formula
