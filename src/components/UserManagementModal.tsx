@@ -268,7 +268,7 @@ export const UserManagementModal: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
                 >
                   Crear Empleado
                 </button>

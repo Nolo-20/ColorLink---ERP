@@ -155,7 +155,7 @@ export const OrdersStoreView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => setRedeemModalOpen(true)}
-              className="px-5 py-3 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xl shadow-emerald-500/25 flex items-center gap-2 cursor-pointer"
+              className="px-5 py-3 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xl shadow-emerald-500/25 flex items-center gap-2 cursor-pointer"
             >
               <QrCode className="w-4 h-4 text-slate-950" />
               <span>Escanear / Canjear QR en Tienda</span>
@@ -498,7 +498,7 @@ export const OrdersStoreView: React.FC = () => {
                                 `Avanzado a "${perm.nextLabel}" por ${currentUser?.nombre || 'Colaborador'} (${currentUser?.rol?.rol || 'Staff'})`
                               );
                             }}
-                            className="px-3.5 py-1.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                            className="px-3.5 py-1.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                           >
                             <span>{perm.nextLabel}</span>
                             <ArrowRight className="w-3.5 h-3.5" />

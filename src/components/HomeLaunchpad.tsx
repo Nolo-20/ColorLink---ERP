@@ -376,7 +376,7 @@ export const HomeLaunchpad: React.FC = () => {
                   <div className="flex items-center justify-between gap-3 mb-4">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 shadow-md ${
                       isLight 
-                        ? 'bg-slate-100 border border-slate-200 text-slate-800 group-hover:bg-[#00D285] group-hover:text-slate-950 group-hover:border-emerald-400' 
+                        ? 'bg-slate-100 border border-slate-200 text-slate-800 group-hover:bg-[#F2C417] group-hover:text-slate-950 group-hover:border-emerald-400' 
                         : module.iconBg
                     }`}>
                       <Icon className="w-7 h-7" />
@@ -420,7 +420,7 @@ export const HomeLaunchpad: React.FC = () => {
                   <span className="tracking-wide">Ingresar al Módulo</span>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
                     isLight
-                      ? 'bg-slate-100 text-slate-700 group-hover:bg-[#00D285] group-hover:text-slate-950'
+                      ? 'bg-slate-100 text-slate-700 group-hover:bg-[#F2C417] group-hover:text-slate-950'
                       : 'bg-slate-800/80 group-hover:bg-emerald-500 group-hover:text-slate-950'
                   }`}>
                     <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />

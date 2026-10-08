@@ -207,7 +207,7 @@ export const ModernLoginScreen: React.FC = () => {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full py-3 bg-[#00D285] hover:bg-[#00c078] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
+                    className="w-full py-3 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
                   >
                     {submitting ? 'INGRESANDO…' : 'INGRESAR'}
                   </button>

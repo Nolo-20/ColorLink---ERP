@@ -82,7 +82,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
           {/* Header Document */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#00D285] flex items-center justify-center text-slate-950 font-black shadow-md">
+              <div className="w-10 h-10 rounded-full bg-[#F2C417] flex items-center justify-center text-slate-950 font-black shadow-md">
                 CL
               </div>
               <div>

@@ -219,7 +219,7 @@ export const EmployeeManagementPanel: React.FC = () => {
               onClick={() => setActiveTabMode('create')}
               className={`px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-sm ${
                 activeTabMode === 'create'
-                  ? 'bg-[#00D285] text-slate-950 shadow-emerald-500/20'
+                  ? 'bg-[#F2C417] text-slate-950 shadow-emerald-500/20'
                   : isLight
                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
@@ -621,7 +621,7 @@ export const EmployeeManagementPanel: React.FC = () => {
 
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                className="px-6 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Crear y Habilitar Colaborador</span>

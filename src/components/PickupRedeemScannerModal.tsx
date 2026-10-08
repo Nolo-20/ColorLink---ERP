@@ -280,7 +280,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
                     type="button"
                     onClick={handleConfirmRedemption}
                     disabled={confirming}
-                    className="w-full py-3.5 bg-[#00D285] hover:bg-[#00c078] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <CheckCircle2 className="w-5 h-5 text-slate-950" />
                     <span>{confirming ? 'Validando…' : 'Confirmar Entrega en Mostrador y Finalizar Pedido'}</span>

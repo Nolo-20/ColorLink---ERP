@@ -38,7 +38,7 @@ export const ESTADO_PROYECTO_BADGE: Record<EstadoPipeline, string> = {
   imagen_por_corregir: 'bg-rose-500/15 text-rose-400 border-rose-500/40',
   en_peritaje: 'bg-sky-500/15 text-sky-400 border-sky-500/40',
   cotizado: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/40',
-  aprobado_calidad: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40',
+  aprobado_calidad: 'bg-green-500/15 text-green-400 border-green-500/40',
   rechazado: 'bg-red-500/15 text-red-400 border-red-500/40',
   despachado: 'bg-teal-500/15 text-teal-300 border-teal-500/40',
   cancelado: 'bg-slate-500/15 text-slate-400 border-slate-500/40',

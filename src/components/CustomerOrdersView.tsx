@@ -204,7 +204,7 @@ export const CustomerOrdersView: React.FC = () => {
                   {isAlistamiento ? (
                     <button
                       onClick={() => handleOpenAssignModal(p)}
-                      className="w-full py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                      className="w-full py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                     >
                       <Truck className="w-3.5 h-3.5" />
                       <span>Asignar Vehículo y Despachar</span>
@@ -333,7 +333,7 @@ export const CustomerOrdersView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                 >
                   <Send className="w-3.5 h-3.5" />
                   Poner en Ruta

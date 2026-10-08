@@ -122,7 +122,7 @@ export const InventoryModule: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => setNewEntryModalOpen(true)}
-            className="px-4 py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
+            className="px-4 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
           >
             <PlusCircle className="w-4 h-4 text-slate-950" />
             <span>➕ Registrar Entrada de Lote</span>
@@ -296,7 +296,7 @@ export const InventoryModule: React.FC = () => {
                     />
                     <button
                       type="submit"
-                      className="flex-1 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/25 flex items-center justify-center gap-1.5 cursor-pointer py-2"
+                      className="flex-1 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/25 flex items-center justify-center gap-1.5 cursor-pointer py-2"
                     >
                       <Plus className="w-4 h-4 text-slate-950" />
                       <span>Cargar Stock</span>
@@ -653,7 +653,7 @@ export const InventoryModule: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-500/20"
+                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-500/20"
                 >
                   Registrar Lote
                 </button>
