@@ -29,12 +29,9 @@ export const InventoryModule: React.FC = () => {
   const { 
     inventarios, 
     productos, 
+    ciudades,
     actualizarStockInventario, 
     agregarEntradaInventario,
-    toggleDisponibilidadProducto,
-    toggleDisponibilidadColor,
-    proyectos, 
-    cambiarEstadoProyecto, 
     theme,
     searchQuery,
     showToast 
@@ -61,10 +58,6 @@ export const InventoryModule: React.FC = () => {
   const [cantidadInput, setCantidadInput] = useState<number>(50);
   const [tiempoDespachoInput, setTiempoDespachoInput] = useState<number>(2);
 
-  // Tint lab modal
-  const [tintModalOpen, setTintModalOpen] = useState(false);
-  const [tintProjectId, setTintProjectId] = useState(proyectos[0]?.proyectoId || '');
-  const [tintColorBase, setTintColorBase] = useState('Base Pastel Blanca');
 
   const filteredInventarios = inventarios.filter(inv => {
     const matchesSearch = 
@@ -85,37 +78,23 @@ export const InventoryModule: React.FC = () => {
     actualizarStockInventario(inv.inventarioId, val);
   };
 
-  const handleCreateEntrySubmit = (e: React.FormEvent) => {
+  const handleCreateEntrySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProdId || cantidadInput <= 0) return;
 
-    agregarEntradaInventario({
+    const creada = await agregarEntradaInventario({
       productoId: selectedProdId,
-      ciudadId: selectedCiudadId,
+      ciudadId: inventarios.find(i => i.nombreBodega === selectedBodegaName)?.ciudadId ?? ciudades[0]?.ciudadId ?? selectedCiudadId,
       nombreBodega: selectedBodegaName,
       numeroLote: loteInput,
       cantidadDisponible: Number(cantidadInput),
       tiempoDespacho: Number(tiempoDespachoInput),
     });
 
+    if (!creada) return;
     setNewEntryModalOpen(false);
     // Reset lote suggestion
     setLoteInput(`LT-2026-MED-${Math.floor(100 + Math.random() * 900)}`);
-  };
-
-  const handleRunTintLab = (e: React.FormEvent) => {
-    e.preventDefault();
-    const proj = proyectos.find(p => p.proyectoId === tintProjectId);
-    if (!proj) return;
-
-    cambiarEstadoProyecto(
-      proj.proyectoId,
-      'alistamiento_bodega',
-      `Tintometría computarizada finalizada con éxito. Se dosificó color ${proj.color} (${proj.colorHex}) utilizando ${tintColorBase}. Lote generado: LT-2026-TINT-${Math.floor(100 + Math.random() * 900)}.`
-    );
-
-    setTintModalOpen(false);
-    showToast(`Formulación tintométrica dispensada para ${proj.nombreProyecto}.`);
   };
 
   return (
@@ -149,17 +128,6 @@ export const InventoryModule: React.FC = () => {
             <span>➕ Registrar Entrada de Lote</span>
           </button>
 
-          <button
-            onClick={() => setTintModalOpen(true)}
-            className={`px-4 py-2.5 font-bold text-xs uppercase tracking-wider rounded-xl transition-all border flex items-center gap-2 cursor-pointer ${
-              theme === 'light'
-                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-                : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
-            }`}
-          >
-            <Droplets className="w-4 h-4 text-cyan-400" />
-            <span>Dispensar Tintometría</span>
-          </button>
         </div>
       </div>
 
@@ -503,13 +471,14 @@ export const InventoryModule: React.FC = () => {
               🎨 Gobernanza de Disponibilidad para Tienda y Proyectos:
             </span>
             <p className="text-xs leading-relaxed">
-              Configura qué productos y colores específicos tienen disponibilidad inmediata para tintometría y entrega. Si un color o producto se agota en planta, desactívalo con un clic; cuando haya reposición de pigmentos, reactívalo de inmediato.
+              Catálogo de productos con el stock real sumado de todas las bodegas. Para reponer un producto, registra una entrada de lote o ajusta las cantidades en la pestaña de lotes.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {productos.map((prod) => {
-              const isAvailable = prod.disponible !== false;
+              const stockTotal = inventarios.filter(i => i.productoId === prod.productoId).reduce((a, i) => a + (i.cantidadDisponible || 0), 0);
+              const isAvailable = stockTotal > 0;
 
               return (
                 <div 
@@ -540,18 +509,17 @@ export const InventoryModule: React.FC = () => {
                       </div>
 
                       {/* General Availability Badge & Switch */}
-                      <button
-                        onClick={() => toggleDisponibilidadProducto(prod.productoId)}
-                        className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
+                      <div
+                        className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
                           isAvailable
-                            ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 hover:bg-emerald-500/30'
-                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500/30'
+                            ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50'
+                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/50'
                         }`}
                       >
                         {isAvailable ? (
                           <>
                             <Check className="w-3.5 h-3.5 text-emerald-500" />
-                            <span>En Catálogo</span>
+                            <span>{stockTotal} en stock</span>
                           </>
                         ) : (
                           <>
@@ -559,69 +527,10 @@ export const InventoryModule: React.FC = () => {
                             <span>Agotado</span>
                           </>
                         )}
-                      </button>
+                      </div>
                     </div>
 
-                    {/* Colors Availability Section */}
-                    <div className="pt-3 space-y-2">
-                      <span className={`text-xs font-bold block ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
-                        Colores de Formulación & Tintometría:
-                      </span>
-
-                      {!prod.coloresDisponibles || prod.coloresDisponibles.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">
-                          Producto estándar sin selección tintométrica (ej. herramientas o base solvente).
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-2">
-                          {prod.coloresDisponibles.map((colorItem) => (
-                            <button
-                              key={colorItem.nombre}
-                              type="button"
-                              onClick={() => toggleDisponibilidadColor(prod.productoId, colorItem.nombre)}
-                              className={`p-2 rounded-xl border text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
-                                colorItem.disponible
-                                  ? theme === 'light' ? 'bg-slate-50 border-slate-200 hover:border-emerald-500' : 'bg-slate-900 border-slate-700 hover:border-emerald-500'
-                                  : 'bg-rose-950/20 border-rose-500/30 opacity-70'
-                              }`}
-                              title={colorItem.disponible ? 'Clic para marcar este color como agotado' : 'Clic para habilitar este color'}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <span 
-                                  className="w-4 h-4 rounded-full border border-black/20 flex-shrink-0 shadow-sm"
-                                  style={{ backgroundColor: colorItem.hex }}
-                                />
-                                <span className={`text-xs font-medium truncate ${
-                                  colorItem.disponible ? (theme === 'light' ? 'text-slate-800' : 'text-slate-200') : 'text-rose-400 line-through'
-                                }`}>
-                                  {colorItem.nombre}
-                                </span>
-                              </div>
-
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                colorItem.disponible
-                                  ? 'bg-emerald-500/20 text-emerald-500'
-                                  : 'bg-rose-500/20 text-rose-400'
-                              }`}>
-                                {colorItem.disponible ? '✓' : '✗'}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </div>
-
-                  {/* Quick reactive state button */}
-                  {!isAvailable && (
-                    <button
-                      onClick={() => toggleDisponibilidadProducto(prod.productoId)}
-                      className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Reactivar Disponibilidad de este Producto</span>
-                    </button>
-                  )}
                 </div>
               );
             })}
@@ -754,80 +663,6 @@ export const InventoryModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: DISPENSAR TINTOMETRÍA LAB */}
-      {tintModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className={`border rounded-3xl w-full max-w-lg p-6 shadow-2xl relative text-xs ${
-            theme === 'light' ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
-          }`}>
-            <div className={`flex items-center justify-between pb-3 border-b ${
-              theme === 'light' ? 'border-slate-200' : 'border-slate-800'
-            }`}>
-              <div className="flex items-center gap-2">
-                <Droplets className="w-5 h-5 text-cyan-400" />
-                <h3 className="font-extrabold text-base">Laboratorio de Tintometría Computarizada</h3>
-              </div>
-              <button onClick={() => setTintModalOpen(false)} className="p-1 text-slate-400 hover:text-white">✕</button>
-            </div>
-
-            <form onSubmit={handleRunTintLab} className="my-4 space-y-3.5">
-              <div>
-                <label className="block font-bold mb-1">Proyecto en Turno de Formulación</label>
-                <select
-                  value={tintProjectId}
-                  onChange={(e) => setTintProjectId(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-cyan-500 ${
-                    theme === 'light' ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                  }`}
-                >
-                  {proyectos.map(p => (
-                    <option key={p.proyectoId} value={p.proyectoId}>
-                      {p.nombreProyecto} — Color: {p.color} ({p.area} m²)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold mb-1">Base de Pintura Tintométrica</label>
-                <select
-                  value={tintColorBase}
-                  onChange={(e) => setTintColorBase(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-cyan-500 ${
-                    theme === 'light' ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                  }`}
-                >
-                  <option value="Base Pastel Blanca NTC">Base Pastel Blanca NTC (Colores Claros)</option>
-                  <option value="Base Tint Media">Base Tint Media (Colores Medios y Terrosos)</option>
-                  <option value="Base Deep / Accent">Base Deep / Accent (Colores Vivos / Concentrados)</option>
-                </select>
-              </div>
-
-              <div className="p-3 bg-cyan-950/30 border border-cyan-500/30 rounded-xl text-cyan-300 text-[11px] leading-relaxed">
-                El dispensador computarizado inyectará los colorantes milimétricos conforme a la curva espectrofotométrica. El proyecto avanzará automáticamente a <strong>Alistamiento en Bodega</strong>.
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setTintModalOpen(false)}
-                  className={`flex-1 py-2.5 rounded-xl font-semibold ${
-                    theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'
-                  }`}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black uppercase tracking-wider rounded-xl"
-                >
-                  Dispensar Color
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

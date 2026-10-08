@@ -47,8 +47,6 @@ export const HomeLaunchpad: React.FC = () => {
     inventarios, 
     pedidos,
     setCalculatorModalOpen, 
-    setRoleSwitcherOpen,
-    crearProyecto,
     setSelectedProyecto,
     theme
   } = useApp();
@@ -58,10 +56,10 @@ export const HomeLaunchpad: React.FC = () => {
   if (!currentUser) return null;
 
   // Real-time metric counts
-  const pendingQuality = proyectos.filter(p => p.estadoPipeline === 'revision_calidad').length;
-  const inTransit = proyectos.filter(p => p.estadoPipeline === 'en_ruta_despacho').length;
-  const inTintingOrWarehouse = proyectos.filter(p => p.estadoPipeline === 'tintometria' || p.estadoPipeline === 'alistamiento_bodega').length;
-  const delivered = proyectos.filter(p => p.estadoPipeline === 'entregado').length;
+  const pendingQuality = proyectos.filter(p => p.estadoPipeline === 'en_peritaje').length;
+  const inTransit = proyectos.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length;
+  const inTintingOrWarehouse = proyectos.filter(p => p.estadoPipeline === 'cotizado' || p.estadoPipeline === 'aprobado_calidad').length;
+  const delivered = proyectos.filter(p => p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega).length;
   
   const totalCunetes = proyectos.reduce((acc, p) => {
     const q = p.cotizaciones && p.cotizaciones[0];
@@ -181,19 +179,6 @@ export const HomeLaunchpad: React.FC = () => {
   const authorizedModules = ALL_MODULES.filter(m => hasModuleAccess(m.id));
   const hiddenCount = ALL_MODULES.length - authorizedModules.length;
 
-  const handleCreateNewProject = () => {
-    const nuevo = crearProyecto({
-      nombreProyecto: 'Nueva Obra Urbanización El Poblado',
-      area: 680,
-      ambiente: 'Fachada',
-      tipoSuperficie: 'Revoque Tradicional',
-      color: 'Gris Grafito Suave',
-      colorHex: '#64748B',
-    });
-    setSelectedProyecto(nuevo);
-    setActiveTab('proyectos');
-  };
-
   return (
     <div className="space-y-8 animate-fadeIn">
       
@@ -262,15 +247,6 @@ export const HomeLaunchpad: React.FC = () => {
               <span>Calculadora Cuñetes</span>
             </button>
 
-            {hasModuleAccess('proyectos') && (
-              <button
-                onClick={handleCreateNewProject}
-                className="px-4 py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Nueva Obra / Cotización</span>
-              </button>
-            )}
           </div>
         </div>
 

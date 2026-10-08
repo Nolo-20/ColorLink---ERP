@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useEffect } from 'react';
+import { ESTADO_PROYECTO_LABEL } from '../estados';
+import { useApp, canRole } from '../context/AppContext';
 import { Proyecto } from '../types/database';
 import { 
-  PlusCircle, 
   Calculator, 
   CheckCircle2, 
   Building2, 
@@ -23,12 +23,12 @@ export const AdvisorProjectManager: React.FC = () => {
   const { 
     proyectos, 
     productos, 
-    empresas, 
     selectedProyecto, 
     setSelectedProyecto, 
     calcularYGuardarCotizacion, 
     cambiarEstadoProyecto, 
-    crearProyecto, 
+    solicitarCambioImagen,
+    obtenerImagenProyecto,
     currentUser,
     setActiveTab,
     showToast,
@@ -40,24 +40,51 @@ export const AdvisorProjectManager: React.FC = () => {
   const isLight = theme === 'light';
 
   const [activeProject, setActiveProject] = useState<Proyecto>(
-
     selectedProyecto || proyectos[0]
   );
+
+  // Cuando llegan datos nuevos del servidor, refresca el proyecto abierto
+  useEffect(() => {
+    setActiveProject(prev => proyectos.find(p => p.proyectoId === prev?.proyectoId) || prev || proyectos[0]);
+  }, [proyectos]);
+
 
   // Form states for technical quotation calculator
   const [calcArea, setCalcArea] = useState<number>(activeProject?.area || 1200);
   const [calcManos, setCalcManos] = useState<number>(2);
-  const [calcProductoId, setCalcProductoId] = useState<string>(productos[0].productoId);
+  const [calcProductoId, setCalcProductoId] = useState<string>(productos[0]?.productoId || '');
   const [calcDescuento, setCalcDescuento] = useState<number>(activeProject?.descuentoAsesorPct || 5);
-  const [newProjectModal, setNewProjectModal] = useState(false);
 
-  // New project form state
-  const [newProjectName, setNewProjectName] = useState('');
-  const [newCompanyId, setNewCompanyId] = useState(empresas[0]?.empresaId || '');
-  const [newArea, setNewArea] = useState(800);
-  const [newAmbiente, setNewAmbiente] = useState<'Interior' | 'Exterior' | 'Fachada' | 'Cubierta' | 'Epóxico Piso Industrial'>('Fachada');
-  const [newColor, setNewColor] = useState('Gris Concreto Claro');
-  const [newColorHex, setNewColorHex] = useState('#D1D5DB');
+  useEffect(() => {
+    if (!calcProductoId && productos[0]) setCalcProductoId(productos[0].productoId);
+  }, [productos, calcProductoId]);
+
+  const [imagen, setImagen] = useState<string | null>(null);
+  const [imagenCargando, setImagenCargando] = useState(false);
+  const [motivoImagen, setMotivoImagen] = useState('');
+  const [pidiendoImagen, setPidiendoImagen] = useState(false);
+
+  useEffect(() => {
+    let cancelado = false;
+    setImagen(null);
+    setMotivoImagen('');
+    setPidiendoImagen(false);
+    if (!activeProject) return;
+    setImagenCargando(true);
+    obtenerImagenProyecto(activeProject.proyectoId)
+      .then(img => { if (!cancelado) setImagen(img); })
+      .finally(() => { if (!cancelado) setImagenCargando(false); });
+    return () => { cancelado = true; };
+  }, [activeProject?.proyectoId]);
+
+  const handlePedirCambioImagen = async () => {
+    if (!activeProject || motivoImagen.trim().length < 5) {
+      showToast('Explica brevemente por qué la imagen no sirve (mínimo 5 caracteres).');
+      return;
+    }
+    const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
+    if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+  };
 
   const handleSelectProject = (p: Proyecto) => {
     setActiveProject(p);
@@ -66,54 +93,26 @@ export const AdvisorProjectManager: React.FC = () => {
     setCalcDescuento(p.descuentoAsesorPct || 0);
   };
 
-  const handleCalculateQuote = (e: React.FormEvent) => {
+  const handleCalculateQuote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeProject) return;
-    const nuevaCot = calcularYGuardarCotizacion(
+    if (!activeProject || !calcProductoId) return;
+    await calcularYGuardarCotizacion(
       activeProject.proyectoId,
       Number(calcArea),
       Number(calcManos),
       calcProductoId,
       Number(calcDescuento)
     );
-    // Refresh local active project
-    const updated = proyectos.find(p => p.proyectoId === activeProject.proyectoId);
-    if (updated) {
-      setActiveProject({
-        ...updated,
-        cotizaciones: [nuevaCot, ...(updated.cotizaciones || [])],
-      });
-    }
   };
 
-  const handleSendToQuality = () => {
+  const handleSendToQuality = async () => {
     if (!activeProject) return;
-    cambiarEstadoProyecto(
+    const ok = await cambiarEstadoProyecto(
       activeProject.proyectoId,
-      'revision_calidad',
-      'El asesor comercial ha enviado el proyecto y cotización para la verificación técnica del Perito de Calidad (humedad, fisuras y adherencia).'
+      'en_peritaje',
+      'El asesor comercial envió el proyecto y la cotización a verificación técnica del perito de calidad.'
     );
-    showToast('Proyecto enviado a cola de inspección del Perito de Calidad.');
-  };
-
-  const handleCreateProjectSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newProjectName.trim()) return;
-
-    const created = crearProyecto({
-      nombreProyecto: newProjectName,
-      empresaId: newCompanyId,
-      area: Number(newArea),
-      ambiente: newAmbiente,
-      color: newColor,
-      colorHex: newColorHex,
-      descuentoAsesorPct: 5,
-      observacionesAsesor: 'Proyecto registrado por el asesor comercial para estructuración de cuñetes.',
-    });
-
-    setNewProjectModal(false);
-    setActiveProject(created);
-    setSelectedProyecto(created);
+    if (ok) showToast('Proyecto enviado a la cola del Perito de Calidad.');
   };
 
   const selectedProduct = productos.find(p => p.productoId === calcProductoId) || productos[0];
@@ -140,13 +139,6 @@ export const AdvisorProjectManager: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setNewProjectModal(true)}
-          className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2 self-start md:self-auto cursor-pointer"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Registrar Nuevo Proyecto</span>
-        </button>
       </div>
 
       {/* Main Grid: Projects List on Left, Active Project Details & Calculator on Right */}
@@ -181,7 +173,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase border ${
                       isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 text-slate-300 border-slate-700'
                     }`}>
-                      {p.estadoPipeline.replace(/_/g, ' ')}
+                      {ESTADO_PROYECTO_LABEL[p.estadoPipeline]}
                     </span>
                     <span className="text-[11px] font-mono text-emerald-500 font-bold">
                       {p.area} m²
@@ -199,7 +191,7 @@ export const AdvisorProjectManager: React.FC = () => {
 
                   <div className={`flex items-center gap-1.5 text-[11px] mt-1 ${isLight ? 'text-emerald-700 font-medium' : 'text-emerald-300'}`}>
                     <UserCheck className="w-3 h-3 text-emerald-500 flex-shrink-0" />
-                    <span className="truncate">Asesor: {p.asesorAsignado?.nombre || 'Valentina Gómez'}</span>
+                    <span className="truncate">Asesor: {p.asesorAsignado?.nombre || 'Sin asignar'}</span>
                   </div>
 
                   <div className={`flex items-center justify-between text-xs mt-3 pt-2.5 border-t ${
@@ -257,6 +249,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     <span>Escalar a otro Asesor</span>
                   </button>
 
+                  {(activeProject.estadoPipeline === 'en_revision' || activeProject.estadoPipeline === 'cotizado') && (
                   <button
                     onClick={handleSendToQuality}
                     className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
@@ -268,6 +261,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     <CheckCircle2 className="w-4 h-4 text-amber-500" />
                     <span>Enviar a Revisión Calidad</span>
                   </button>
+                  )}
                 </div>
               </div>
 
@@ -303,7 +297,7 @@ export const AdvisorProjectManager: React.FC = () => {
                       </span>
                     </div>
                     <span className={`font-extrabold text-sm block ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                      {activeProject.asesorAsignado ? `${activeProject.asesorAsignado.nombre} ${activeProject.asesorAsignado.apellido}` : 'Valentina Gómez'}
+                      {activeProject.asesorAsignado ? `${activeProject.asesorAsignado.nombre} ${activeProject.asesorAsignado.apellido}` : 'Sin asignar'}
                     </span>
                     <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                       {activeProject.asesorAsignado?.email || 'asesor1@colorlink.co'} • {activeProject.asesorAsignado?.telefono || '+57 300 219 4432'}
@@ -379,32 +373,53 @@ export const AdvisorProjectManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* Photos & Evidence Strip */}
-              {activeProject.evidencias && activeProject.evidencias.length > 0 && (
-                <div className={`mt-4 pt-4 border-t ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
-                  <span className={`text-xs font-bold block mb-2 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Evidencias Fotográficas de la Obra ({activeProject.evidencias.length})
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {activeProject.evidencias.map((evi) => (
-                      <div key={evi.evidenciaId} className={`relative rounded-lg overflow-hidden border group aspect-video ${
-                        isLight ? 'border-slate-200 bg-slate-100' : 'border-slate-700 bg-slate-800'
-                      }`}>
-                        <img 
-                          src={evi.urlAlmacenado} 
-                          alt={evi.nombreArchivo} 
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-1.5">
-                          <span className="text-[10px] text-slate-300 truncate font-mono">
-                            {evi.nombreArchivo}
-                          </span>
-                        </div>
+              {/* Imagen enviada por el cliente */}
+              <div className={`mt-4 pt-4 border-t ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                <span className={`text-xs font-bold block mb-2 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                  Imagen enviada por el cliente
+                </span>
+                {imagenCargando ? (
+                  <p className="text-xs text-slate-400">Cargando imagen…</p>
+                ) : imagen ? (
+                  <img src={imagen} alt="Superficie a intervenir" className="max-h-64 rounded-lg border border-slate-700 object-contain" />
+                ) : (
+                  <p className="text-xs text-slate-400">Este proyecto no tiene imagen guardada.</p>
+                )}
+
+                {activeProject.estadoPipeline === 'imagen_por_corregir' && (
+                  <p className="mt-3 text-xs text-rose-400">
+                    Se pidió al cliente cambiar la imagen{activeProject.observacionImagen ? `: “${activeProject.observacionImagen}”` : '.'}
+                  </p>
+                )}
+
+                {canRole.editarProyecto(currentUser?.rol.rol) && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
+                  pidiendoImagen ? (
+                    <div className="mt-3 space-y-2">
+                      <textarea
+                        rows={2}
+                        value={motivoImagen}
+                        onChange={(e) => setMotivoImagen(e.target.value)}
+                        placeholder="Dile al cliente qué debe corregir (borrosa, muy oscura, no corresponde a la obra…)"
+                        className={`w-full rounded-lg p-3 text-xs focus:outline-none focus:border-emerald-500 border ${
+                          isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                        }`}
+                      />
+                      <div className="flex gap-2">
+                        <button type="button" onClick={handlePedirCambioImagen} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer">
+                          Enviar solicitud al cliente
+                        </button>
+                        <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); }} className="px-3 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 cursor-pointer">
+                          Cancelar
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setPidiendoImagen(true)} className="mt-3 px-3 py-1.5 text-xs font-bold rounded-lg border border-amber-500/50 text-amber-500 hover:bg-amber-500/10 cursor-pointer">
+                      Pedir al cliente otra imagen
+                    </button>
+                  )
+                )}
+              </div>
             </div>
 
             {/* Technical Quotation Engine (Calculadora de Cuñetes) */}
@@ -621,151 +636,6 @@ export const AdvisorProjectManager: React.FC = () => {
         ) : null}
       </div>
 
-      {/* MODAL: REGISTRAR NUEVO PROYECTO */}
-      {newProjectModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`border rounded-2xl w-full max-w-lg p-6 shadow-2xl relative ${
-            isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
-          }`}>
-            <h3 className={`text-lg font-bold mb-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>Registrar Nuevo Proyecto de Obra</h3>
-            <p className={`text-xs mb-4 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Ingresa los datos del cliente y los parámetros iniciales de recubrimiento.
-            </p>
-
-            <form onSubmit={handleCreateProjectSubmit} className="space-y-4">
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Nombre del Proyecto u Obra
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="ej. Torre Mirador Envigado - Etapa 2"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 border ${
-                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Empresa Cliente / Constructora
-                </label>
-                <select
-                  value={newCompanyId}
-                  onChange={(e) => setNewCompanyId(e.target.value)}
-                  className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 border ${
-                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                  }`}
-                >
-                  {empresas.map((e) => (
-                    <option key={e.empresaId} value={e.empresaId}>
-                      {e.razonSocial} (NIT: {e.nitCedula})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Área Aproximada (m²)
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min={20}
-                    value={newArea}
-                    onChange={(e) => setNewArea(Number(e.target.value))}
-                    className={`w-full rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
-                  />
-                </div>
-
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Ambiente
-                  </label>
-                  <select
-                    value={newAmbiente}
-                    onChange={(e) => setNewAmbiente(e.target.value as any)}
-                    className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
-                  >
-                    <option value="Fachada">Fachada Exterior</option>
-                    <option value="Interior">Interiores y Drywall</option>
-                    <option value="Cubierta">Cubiertas e Impermeabilización</option>
-                    <option value="Epóxico Piso Industrial">Epóxico Piso Industrial</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Nombre del Color
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newColor}
-                    onChange={(e) => setNewColor(e.target.value)}
-                    className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
-                  />
-                </div>
-
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Tono Hexadecimal
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={newColorHex}
-                      onChange={(e) => setNewColorHex(e.target.value)}
-                      className={`w-9 h-9 rounded cursor-pointer border ${
-                        isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'
-                      }`}
-                    />
-                    <input
-                      type="text"
-                      value={newColorHex}
-                      onChange={(e) => setNewColorHex(e.target.value)}
-                      className={`w-full rounded-lg px-2.5 py-2 text-xs font-mono uppercase focus:outline-none focus:border-emerald-500 border ${
-                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                      }`}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setNewProjectModal(false)}
-                  className={`flex-1 py-2.5 font-semibold text-xs rounded-lg transition-colors cursor-pointer border ${
-                    isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                  }`}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors cursor-pointer shadow-md shadow-emerald-500/20"
-                >
-                  Crear Proyecto
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

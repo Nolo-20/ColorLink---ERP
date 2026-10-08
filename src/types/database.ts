@@ -39,6 +39,7 @@ export interface Usuario {
   passwordHash?: string;
   authProvider: 'credentials' | 'google' | 'microsoft' | 'otp';
   providerId?: string;
+  activo?: boolean;
   company?: string;
   documentId?: string;
   address?: string;
@@ -65,15 +66,15 @@ export interface EmpresaCliente {
   direccionDespacho: string;
 }
 
-export type EstadoPipeline = 
-  | 'diagnostico_creado'
-  | 'cotizacion_generada'
-  | 'revision_calidad'
-  | 'aprobado_cliente'
-  | 'tintometria'
-  | 'alistamiento_bodega'
-  | 'en_ruta_despacho'
-  | 'entregado';
+export type EstadoPipeline =
+  | 'en_revision'
+  | 'imagen_por_corregir'
+  | 'en_peritaje'
+  | 'cotizado'
+  | 'aprobado_calidad'
+  | 'rechazado'
+  | 'despachado'
+  | 'cancelado';
 
 export interface DiagnosticoIA {
   diagnosticoId: string;
@@ -96,7 +97,7 @@ export interface DiagnosticoIA {
 export interface EvidenciaFoto {
   evidenciaId: string;
   proyectoId: string;
-  urlAlmacenado: string;
+  urlAlmacenado?: string; // la imagen se pide aparte (GET /api/projects/:id/evidence)
   nombreArchivo: string;
   tamanoMb?: number;
   fechaRegistro: string;
@@ -167,7 +168,7 @@ export interface MovimientoLogistico {
   id: string;
   proyectoId: string;
   fecha: string;
-  estadoAnterior: EstadoPipeline;
+  estadoAnterior?: EstadoPipeline | null;
   estadoNuevo: EstadoPipeline;
   usuarioNombre: string;
   rolNombre: string;
@@ -187,7 +188,8 @@ export interface DespachoInfo {
   tiempoEstimadoHoras: number;
   direccionEntrega: string;
   ciudadEntrega: string;
-  estadoDespacho: 'Alistamiento' | 'En Ruta' | 'Entregado en Obra';
+  bodegaOrigen?: string;
+  estadoDespacho: 'En Ruta' | 'Entregado en Obra';
   recibidoPor?: string;
   documentoRecibe?: string;
   firmaDigital?: boolean;
@@ -217,7 +219,8 @@ export interface PedidoItem {
 }
 
 export interface PedidoTienda {
-  pedidoId: string; // ej: CL-224407
+  pedidoId: string; // código visible, ej: CL-E66D63F1
+  ordenId: string; // id real en la base de datos (para llamar a la API)
   clienteId: string;
   clienteNombre: string;
   clienteEmail: string;
@@ -233,7 +236,7 @@ export interface PedidoTienda {
   ciudadEntrega?: string;
   barrioSector?: string;
   instruccionesEntrega?: string;
-  metodoPago: 'PSE / Transferencia' | 'Tarjeta Crédito / Débito' | 'Pago Contra Entrega' | 'Crédito ColorLink 30 Días';
+  metodoPago?: 'PSE / Transferencia' | 'Tarjeta Crédito / Débito' | 'Pago Contra Entrega' | 'Crédito ColorLink 30 Días';
   subtotal: number;
   iva: number;
   total: number;
@@ -268,6 +271,8 @@ export interface Proyecto {
   usuario?: Usuario;
   asesorAsignadoId?: string;
   asesorAsignado?: Usuario;
+  peritoAsignadoId?: string;
+  peritoAsignado?: Usuario;
   empresaId: string;
   empresa?: EmpresaCliente;
   nombreProyecto: string;
@@ -281,6 +286,7 @@ export interface Proyecto {
   estadoPipeline: EstadoPipeline;
   descuentoAsesorPct?: number;
   observacionesAsesor?: string;
+  observacionImagen?: string | null; // motivo por el que se pidió cambiar la imagen
   createdAt: string;
   updatedAt: string;
   diagnostico?: DiagnosticoIA;

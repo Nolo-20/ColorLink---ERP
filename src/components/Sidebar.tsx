@@ -45,8 +45,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
 
   if (!currentUser) return null;
 
-  const pendingQuality = proyectos.filter(p => p.estadoPipeline === 'revision_calidad').length;
-  const inTransit = proyectos.filter(p => p.estadoPipeline === 'en_ruta_despacho').length;
+  const pendingQuality = proyectos.filter(p => p.estadoPipeline === 'en_peritaje').length;
+  const inTransit = proyectos.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length;
   const pendingPickup = pedidos.filter(p => p.estadoPedido === 'listo_sucursal').length;
 
   const menuItems: { id: TabType; label: string; icon: React.ElementType; badge?: string | number; badgeColor?: string }[] = [

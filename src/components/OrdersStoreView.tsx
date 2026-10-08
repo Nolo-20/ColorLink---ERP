@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useApp } from '../context/AppContext';
+import { useApp, canRole } from '../context/AppContext';
 import { EstadoPedido, ModalidadEntrega, PedidoTienda, Producto } from '../types/database';
 import { 
   Package, 
@@ -34,11 +34,10 @@ export const OrdersStoreView: React.FC = () => {
   const { 
     pedidos, 
     productos,
+    inventarios,
     currentUser, 
     cambiarEstadoPedido, 
     setRedeemModalOpen, 
-    sucursales, 
-    crearPedidoTienda, 
     setActiveTab, 
     showToast,
     searchQuery,
@@ -51,19 +50,8 @@ export const OrdersStoreView: React.FC = () => {
   const [filterModalidad, setFilterModalidad] = useState<string>('all');
   const [filterEstado, setFilterEstado] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [newOrderModal, setNewOrderModal] = useState<boolean>(false);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<PedidoTienda | null>(null);
 
-  // Form states for test order simulation
-  const [newClientName, setNewClientName] = useState('Juan David Restrepo');
-  const [newClientPhone, setNewClientPhone] = useState('+57 301 450 8822');
-  const [newClientEmail, setNewClientEmail] = useState('jrestrepo@obrasmedellin.co');
-  const [newClientDoc, setNewClientDoc] = useState('CC 1.017.234.901');
-  const [newModalidad, setNewModalidad] = useState<ModalidadEntrega>('recogida_sucursal');
-  const [newSucursal, setNewSucursal] = useState<string>(sucursales[0].nombre);
-  const [newPaymentMethod, setNewPaymentMethod] = useState<'PSE / Transferencia' | 'Tarjeta Crédito / Débito' | 'Pago Contra Entrega' | 'Crédito ColorLink 30 Días'>('PSE / Transferencia');
-  const [selectedProductId, setSelectedProductId] = useState<string>(productos[0]?.productoId || '');
-  const [selectedColorName, setSelectedColorName] = useState<string>('Blanco Nieve');
 
   // Sync with global navbar search
   useEffect(() => {
@@ -93,99 +81,33 @@ export const OrdersStoreView: React.FC = () => {
       (p.coloresDisponibles && p.coloresDisponibles.some(c => c.nombre.toLowerCase().includes(searchTerm.toLowerCase())));
   });
 
-  // Handle opening modal from a specific product card
-  const handleOpenSimulateForProduct = (prod: Producto) => {
-    if (prod.disponible === false) {
-      showToast('Este producto se encuentra agotado en planta. Puedes reactivarlo en el módulo de Inventario.');
-      return;
-    }
-    setSelectedProductId(prod.productoId);
-    if (prod.coloresDisponibles && prod.coloresDisponibles.length > 0) {
-      const firstAvail = prod.coloresDisponibles.find(c => c.disponible !== false);
-      setSelectedColorName(firstAvail ? firstAvail.nombre : prod.coloresDisponibles[0].nombre);
-    }
-    setNewOrderModal(true);
-  };
-
-  // Handle simulated client purchase with pickup in branch
-  const handleCreateSimulatedOrder = (e: React.FormEvent) => {
-    e.preventDefault();
-    const prod = productos.find(p => p.productoId === selectedProductId) || productos[0];
-    if (prod.disponible === false) {
-      showToast('❌ Este producto se encuentra actualmente agotado en planta. Debes activarlo primero en Inventario.');
-      return;
-    }
-
-    // Check color availability
-    const chosenColor = prod.coloresDisponibles?.find(c => c.nombre === selectedColorName);
-    if (chosenColor && chosenColor.disponible === false) {
-      showToast('❌ El color seleccionado no tiene pigmentos disponibles en tintometría. Selecciona otro color o actívalo en Inventario.');
-      return;
-    }
-
-    const price = prod.precio || 365000;
-    const subtotal = Math.round(price / 1.19);
-    const iva = price - subtotal;
-
-    const created = crearPedidoTienda({
-      clienteNombre: newClientName,
-      clienteEmail: newClientEmail,
-      clienteTelefono: newClientPhone,
-      clienteDoc: newClientDoc,
-      modalidadEntrega: newModalidad,
-      sucursalRetiro: newModalidad === 'recogida_sucursal' ? newSucursal : undefined,
-      direccionEntrega: newModalidad === 'envio_domicilio' ? 'Carrera 43A # 18 Sur - 45, El Poblado' : undefined,
-      ciudadEntrega: 'Medellín',
-      metodoPago: newPaymentMethod,
-      subtotal,
-      iva,
-      total: price,
-      items: [
-        {
-          itemId: `item-sim-${Date.now()}`,
-          productoId: prod.productoId,
-          nombre: prod.nombre,
-          presentacion: prod.presentacion || 'Cuñete 5 Galones',
-          color: selectedColorName,
-          cantidad: 1,
-          precioUnitario: price,
-          total: price,
-          imagenUrl: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&w=300&q=80',
-        },
-      ],
-    });
-
-    setNewOrderModal(false);
-    showToast(`Pedido #${created.pedidoId} creado exitosamente con código de retiro ${created.codigoRetiro || 'N/A'}`);
-  };
-
   // Helper description of who can advance each order state
-  const getRolePermissionBadge = (estado: EstadoPedido) => {
+  const getRolePermissionBadge = (estado: EstadoPedido, modalidad: ModalidadEntrega) => {
     switch (estado) {
       case 'comprado_confirmado':
         return {
-          role: 'Jefe de Despachos / Bodega',
+          role: 'Jefe de Despachos / Administrador',
           nextState: 'en_alistamiento' as EstadoPedido,
           nextLabel: 'Pasar a Alistamiento en Bodega',
           badgeColor: 'text-blue-500 bg-blue-500/10 border-blue-500/30',
         };
       case 'en_alistamiento':
         return {
-          role: 'Jefe de Despachos / Bodega',
-          nextState: 'listo_sucursal' as EstadoPedido,
-          nextLabel: 'Marcar Listo en Sucursal para Retiro',
+          role: 'Jefe de Despachos / Administrador',
+          nextState: (modalidad === 'recogida_sucursal' ? 'listo_sucursal' : 'en_ruta_domicilio') as EstadoPedido,
+          nextLabel: modalidad === 'recogida_sucursal' ? 'Marcar Listo en Sucursal para Retiro' : 'Despachar a Domicilio',
           badgeColor: 'text-amber-500 bg-amber-500/10 border-amber-500/30',
         };
       case 'listo_sucursal':
         return {
-          role: 'Jefe de Despachos / Asesor Mostrador / Admin',
+          role: 'Jefe de Despachos / Administrador (o escáner de retiro)',
           nextState: 'entregado_recogido' as EstadoPedido,
           nextLabel: 'Canjear Código & Entregar en Mostrador',
           badgeColor: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30',
         };
       case 'en_ruta_domicilio':
         return {
-          role: 'Jefe de Despachos / Conductor',
+          role: 'Jefe de Despachos / Administrador',
           nextState: 'entregado_recogido' as EstadoPedido,
           nextLabel: 'Confirmar Entrega en Obra',
           badgeColor: 'text-orange-500 bg-orange-500/10 border-orange-500/30',
@@ -239,17 +161,6 @@ export const OrdersStoreView: React.FC = () => {
               <span>Escanear / Canjear QR en Tienda</span>
             </button>
 
-            <button
-              onClick={() => setNewOrderModal(true)}
-              className={`px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-xl transition-all border flex items-center gap-2 cursor-pointer ${
-                isLight 
-                  ? 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-sm' 
-                  : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
-              }`}
-            >
-              <PlusCircle className="w-4 h-4 text-emerald-500" />
-              <span>Registrar Venta / Pedido en Línea</span>
-            </button>
           </div>
         </div>
 
@@ -414,7 +325,7 @@ export const OrdersStoreView: React.FC = () => {
             ) : (
               filteredOrders.map((p) => {
                 const isPickup = p.modalidadEntrega === 'recogida_sucursal';
-                const perm = getRolePermissionBadge(p.estadoPedido);
+                const perm = getRolePermissionBadge(p.estadoPedido, p.modalidadEntrega);
 
                 return (
                   <div 
@@ -578,15 +489,14 @@ export const OrdersStoreView: React.FC = () => {
                         </button>
 
                         {/* Next transition button */}
-                        {perm.nextState && (
+                        {perm.nextState && canRole.gestionarPedidos(currentUser?.rol.rol) && (
                           <button
                             onClick={() => {
                               cambiarEstadoPedido(
                                 p.pedidoId, 
                                 perm.nextState!, 
-                                `Transición a ${perm.nextState} realizada por ${currentUser?.nombre || 'Colaborador'} (${currentUser?.rol?.rol || 'Staff'})`
+                                `Avanzado a "${perm.nextLabel}" por ${currentUser?.nombre || 'Colaborador'} (${currentUser?.rol?.rol || 'Staff'})`
                               );
-                              showToast(`Pedido #${p.pedidoId} avanzado a: ${perm.nextLabel}`);
                             }}
                             className="px-3.5 py-1.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                           >
@@ -631,7 +541,7 @@ export const OrdersStoreView: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredProducts.map((prod) => {
-              const isAvailable = prod.disponible !== false;
+              const isAvailable = inventarios.some(i => i.productoId === prod.productoId && (i.cantidadDisponible || 0) > 0);
               const availableColors = prod.coloresDisponibles?.filter(c => c.disponible !== false) || [];
 
               return (
@@ -732,31 +642,13 @@ export const OrdersStoreView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Actions on card */}
-                  <div className="pt-2">
-                    {isAvailable ? (
-                      <button
-                        onClick={() => handleOpenSimulateForProduct(prod)}
-                        className="w-full py-2.5 bg-[#00D285] hover:bg-[#00c078] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <ShoppingBag className="w-4 h-4 text-slate-950" />
-                        <span>Crear Pedido con este Producto</span>
-                      </button>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-center text-[11px] font-bold">
-                          ⚠️ Producto Agotado Temporalmente
-                        </div>
-                        <button
-                          onClick={() => setActiveTab('inventarios')}
-                          className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          <span>Reactivar en Módulo de Inventario</span>
-                        </button>
+                  {!isAvailable && (
+                    <div className="pt-2">
+                      <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-center text-[11px] font-bold">
+                        ⚠️ Sin stock en bodegas
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -837,199 +729,6 @@ export const OrdersStoreView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: SIMULATE NEW ORDER WITH PICKUP */}
-      {newOrderModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className={`border rounded-3xl w-full max-w-lg p-6 shadow-2xl relative text-xs ${
-            isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
-          }`}>
-            <div className={`flex items-center justify-between pb-3 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-              <div className="flex items-center gap-2">
-                <ShoppingBag className="w-5 h-5 text-emerald-500" />
-                <h3 className="font-extrabold text-base">Registrar Venta / Pedido de Tienda Web</h3>
-              </div>
-              <button
-                onClick={() => setNewOrderModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateSimulatedOrder} className="my-4 space-y-3 text-xs">
-              <div>
-                <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Nombre Completo del Cliente</label>
-                <input
-                  type="text"
-                  required
-                  value={newClientName}
-                  onChange={(e) => setNewClientName(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 ${
-                    isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                  }`}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Documento / Cédula</label>
-                  <input
-                    type="text"
-                    required
-                    value={newClientDoc}
-                    onChange={(e) => setNewClientDoc(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 ${
-                      isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                    }`}
-                  />
-                </div>
-                <div>
-                  <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Teléfono</label>
-                  <input
-                    type="text"
-                    required
-                    value={newClientPhone}
-                    onChange={(e) => setNewClientPhone(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 ${
-                      isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Modalidad de Entrega</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewModalidad('recogida_sucursal')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                      newModalidad === 'recogida_sucursal'
-                        ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500'
-                        : isLight ? 'bg-slate-100 text-slate-600 border-slate-300' : 'bg-slate-900 text-slate-400 border-slate-800'
-                    }`}
-                  >
-                    Recogida en Sucursal (Código/QR)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewModalidad('envio_domicilio')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                      newModalidad === 'envio_domicilio'
-                        ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500'
-                        : isLight ? 'bg-slate-100 text-slate-600 border-slate-300' : 'bg-slate-900 text-slate-400 border-slate-800'
-                    }`}
-                  >
-                    Envío a Domicilio / Obra
-                  </button>
-                </div>
-              </div>
-
-              {newModalidad === 'recogida_sucursal' && (
-                <div>
-                  <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Selecciona la Sucursal para Retirar</label>
-                  <select
-                    value={newSucursal}
-                    onChange={(e) => setNewSucursal(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 font-medium ${
-                      isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                    }`}
-                  >
-                    {sucursales.map(s => (
-                      <option key={s.id} value={s.nombre}>
-                        {s.nombre} ({s.ciudad})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Producto a Comprar</label>
-                <select
-                  value={selectedProductId}
-                  onChange={(e) => {
-                    setSelectedProductId(e.target.value);
-                    const chosen = productos.find(p => p.productoId === e.target.value);
-                    if (chosen?.coloresDisponibles && chosen.coloresDisponibles.length > 0) {
-                      const firstAvail = chosen.coloresDisponibles.find(c => c.disponible !== false);
-                      setSelectedColorName(firstAvail ? firstAvail.nombre : chosen.coloresDisponibles[0].nombre);
-                    }
-                  }}
-                  className={`w-full rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 font-medium ${
-                    isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                  }`}
-                >
-                  {productos.map(p => (
-                    <option key={p.productoId} value={p.productoId} disabled={p.disponible === false}>
-                      {p.nombre} ({p.presentacion}) - ${p.precio?.toLocaleString('es-CO')} {p.disponible === false ? '❌ (AGOTADO EN PLANTA)' : '✓ (Disponible)'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Color Disponible de Formulación Tintométrica</label>
-                <select
-                  value={selectedColorName}
-                  onChange={(e) => setSelectedColorName(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 font-medium ${
-                    isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                  }`}
-                >
-                  {(productos.find(p => p.productoId === selectedProductId)?.coloresDisponibles || [
-                    { nombre: 'Blanco Nieve', hex: '#FFFFFF', disponible: true },
-                    { nombre: 'Gris Nórdico', hex: '#D1D5DB', disponible: true }
-                  ]).map(c => (
-                    <option key={c.nombre} value={c.nombre} disabled={c.disponible === false}>
-                      {c.nombre} {c.disponible !== false ? '✓ (Disponible)' : '❌ (Agotado en tintometría - No disponible)'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Método de Pago</label>
-                <select
-                  value={newPaymentMethod}
-                  onChange={(e) => setNewPaymentMethod(e.target.value as any)}
-                  className={`w-full rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 font-medium ${
-                    isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
-                  }`}
-                >
-                  <option value="PSE / Transferencia">PSE / Transferencia Bancolombia</option>
-                  <option value="Tarjeta Crédito / Débito">Tarjeta de Crédito / Débito</option>
-                  <option value="Crédito ColorLink 30 Días">Crédito Comercial ColorLink 30 Días</option>
-                </select>
-              </div>
-
-              <div className={`p-3 rounded-xl border text-[11px] ${
-                isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
-              }`}>
-                Al confirmar la compra con recogida en sucursal, el sistema generará automáticamente el <strong>Código de Retiro</strong> y el <strong>QR</strong> para que el cliente pueda reclamar en mostrador.
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setNewOrderModal(false)}
-                  className={`flex-1 py-2.5 rounded-xl font-semibold cursor-pointer ${
-                    isLight ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-extrabold uppercase tracking-wider cursor-pointer shadow-md"
-                >
-                  Procesar y Confirmar Pedido
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

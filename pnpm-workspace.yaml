@@ -1,0 +1,6 @@
+# pnpm 12 rechaza versiones publicadas hace menos de 1 día; el lockfile ya fija las versiones exactas
+minimumReleaseAge: 0
+allowBuilds:
+  '@google/genai': true
+  esbuild: true
+  protobufjs: true

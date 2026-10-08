@@ -17,44 +17,43 @@ import {
 } from 'lucide-react';
 
 export const CustomerOrdersView: React.FC = () => {
-  const { proyectos, crearDespacho, cambiarEstadoProyecto, theme } = useApp();
+  const { proyectos, despacharProyecto, theme } = useApp();
   const isLight = theme === 'light';
 
   const [receiptProject, setReceiptProject] = useState<Proyecto | null>(null);
   const [assignDispatchModal, setAssignDispatchModal] = useState<Proyecto | null>(null);
 
   // Dispatch assignment form
-  const [driverName, setDriverName] = useState('Hernán Darío Cadavid');
-  const [driverPhone, setDriverPhone] = useState('+57 313 602 1199');
-  const [vehiclePlate, setVehiclePlate] = useState('WLC-492');
-  const [transportCompany, setTransportCompany] = useState('Flota Logística ColorLink Valle de Aburrá');
+  const [driverName, setDriverName] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
+  const [vehiclePlate, setVehiclePlate] = useState('');
+  const [transportCompany, setTransportCompany] = useState('');
   const [transitHours, setTransitHours] = useState(2);
 
   const dispatchableProjects = proyectos.filter(p => 
-    p.estadoPipeline === 'alistamiento_bodega' ||
-    p.estadoPipeline === 'en_ruta_despacho' ||
-    p.estadoPipeline === 'entregado'
+    p.estadoPipeline === 'aprobado_calidad' ||
+    p.estadoPipeline === 'despachado'
   );
 
   const handleOpenAssignModal = (p: Proyecto) => {
     setAssignDispatchModal(p);
   };
 
-  const handleConfirmDispatch = (e: React.FormEvent) => {
+  const handleConfirmDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignDispatchModal) return;
 
-    crearDespacho(assignDispatchModal.proyectoId, {
+    const ok = await despacharProyecto(assignDispatchModal.proyectoId, {
       conductorNombre: driverName,
       conductorTelefono: driverPhone,
       placaVehiculo: vehiclePlate,
       transportador: transportCompany,
       tiempoEstimadoHoras: Number(transitHours),
       direccionEntrega: assignDispatchModal.empresa?.direccionDespacho,
-      ciudadEntrega: assignDispatchModal.empresa?.ciudad?.ciudad || 'Medellín',
+      ciudadEntrega: assignDispatchModal.empresa?.ciudad?.ciudad,
     });
 
-    setAssignDispatchModal(null);
+    if (ok) setAssignDispatchModal(null);
   };
 
   return (
@@ -96,14 +95,14 @@ export const CustomerOrdersView: React.FC = () => {
             <Truck className={`w-10 h-10 mx-auto mb-3 ${isLight ? 'text-slate-400' : 'text-slate-600'}`} />
             <p className={`font-bold text-base ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>No hay pedidos pendientes de despacho.</p>
             <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
-              Los pedidos aparecerán aquí una vez aprobados técnicamente por Calidad y tinturados en bodega.
+              Los proyectos aparecerán aquí una vez aprobados técnicamente por Calidad.
             </p>
           </div>
         ) : (
           dispatchableProjects.map((p) => {
-            const isEnRuta = p.estadoPipeline === 'en_ruta_despacho';
-            const isDelivered = p.estadoPipeline === 'entregado';
-            const isAlistamiento = p.estadoPipeline === 'alistamiento_bodega';
+            const isEnRuta = p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega;
+            const isDelivered = p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega;
+            const isAlistamiento = p.estadoPipeline === 'aprobado_calidad';
             const d = p.despacho;
             const latestQuote = p.cotizaciones && p.cotizaciones[0];
 

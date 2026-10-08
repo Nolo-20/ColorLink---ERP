@@ -20,9 +20,9 @@ export const RoleDashboard: React.FC = () => {
 
   // Aggregate metrics
   const totalProyectos = proyectos.length;
-  const enRuta = proyectos.filter(p => p.estadoPipeline === 'en_ruta_despacho').length;
-  const entregados = proyectos.filter(p => p.estadoPipeline === 'entregado').length;
-  const enCalidad = proyectos.filter(p => p.estadoPipeline === 'revision_calidad').length;
+  const enRuta = proyectos.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length;
+  const entregados = proyectos.filter(p => p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega).length;
+  const enCalidad = proyectos.filter(p => p.estadoPipeline === 'en_peritaje').length;
 
   // Total cuñetes sum
   const totalCunetes = proyectos.reduce((acc, p) => {
@@ -150,7 +150,7 @@ export const RoleDashboard: React.FC = () => {
           <div className="space-y-3 pt-2">
             {[
               { label: 'En Evaluación Técnica (Calidad)', count: enCalidad, total: totalProyectos, color: 'bg-amber-400' },
-              { label: 'Tintometría y Alistamiento en Bodega', count: proyectos.filter(p => p.estadoPipeline === 'tintometria' || p.estadoPipeline === 'alistamiento_bodega').length, total: totalProyectos, color: 'bg-cyan-500' },
+              { label: 'Cotizados / Aprobados por Calidad', count: proyectos.filter(p => p.estadoPipeline === 'cotizado' || p.estadoPipeline === 'aprobado_calidad').length, total: totalProyectos, color: 'bg-cyan-500' },
               { label: 'En Tránsito / Despacho', count: enRuta, total: totalProyectos, color: 'bg-orange-500' },
               { label: 'Entregados y Conformes en Obra', count: entregados, total: totalProyectos, color: 'bg-emerald-500' },
             ].map((item, idx) => {

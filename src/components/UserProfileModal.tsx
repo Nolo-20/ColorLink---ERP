@@ -44,6 +44,7 @@ export const UserProfileModal: React.FC = () => {
   // Form states - ONLY phone and password can be edited, plus profile photo
   const [photoUrl, setPhotoUrl] = useState<string>('');
   const [telefono, setTelefono] = useState<string>('');
+  const [passwordActual, setPasswordActual] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -62,6 +63,7 @@ export const UserProfileModal: React.FC = () => {
       // Clean phone number: keep only 10 digits
       const cleanPhone = (currentUser.telefono || '').replace(/\D/g, '').slice(-10);
       setTelefono(cleanPhone);
+      setPasswordActual('');
       setPassword('');
       setConfirmPassword('');
       setPhoneError('');
@@ -108,7 +110,7 @@ export const UserProfileModal: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // 1. Validate Phone: exactly 10 digits if filled
@@ -119,6 +121,10 @@ export const UserProfileModal: React.FC = () => {
 
     // 2. Validate Password: if user wants to change it
     if (password.length > 0) {
+      if (!passwordActual) {
+        setPasswordError('Escribe tu contraseña actual para poder cambiarla.');
+        return;
+      }
       if (password.length < 8) {
         setPasswordError('La nueva contraseña debe tener al menos 8 caracteres.');
         return;
@@ -134,16 +140,21 @@ export const UserProfileModal: React.FC = () => {
     }
 
     // Prepare update payload
-    const payload: { fotoUrl?: string; telefono?: string; password?: string } = {
+    const payload: { fotoUrl?: string; telefono?: string; passwordActual?: string; password?: string } = {
       fotoUrl: photoUrl || currentUser.avatarUrl,
       telefono: telefono.length === 10 ? `+57 ${telefono}` : currentUser.telefono,
     };
 
     if (password.length >= 8) {
       payload.password = password;
+      payload.passwordActual = passwordActual;
     }
 
-    actualizarPerfilUsuario(payload);
+    const res = await actualizarPerfilUsuario(payload);
+    if (!res.success) {
+      setPasswordError(res.message);
+      return;
+    }
     setSuccessNotice('¡Perfil actualizado con éxito!');
     setTimeout(() => {
       setProfileModalOpen(false);
@@ -378,6 +389,24 @@ export const UserProfileModal: React.FC = () => {
                     Solo números permitidos • Longitud exacta: 10 dígitos (ej. 3105556677)
                   </p>
                 )}
+              </div>
+
+              {/* Contraseña actual (necesaria solo para cambiarla) */}
+              <div>
+                <label className={`text-xs font-bold flex items-center gap-1.5 mb-1.5 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                  <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                  Contraseña Actual
+                </label>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={passwordActual}
+                  onChange={(e) => { setPasswordActual(e.target.value); setPasswordError(''); }}
+                  placeholder="Solo si vas a cambiar tu contraseña"
+                  autoComplete="current-password"
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-xs font-mono focus:outline-none border ${
+                    isLight ? 'border-slate-300 bg-slate-50 text-slate-900' : 'border-slate-700 bg-slate-900 text-white'
+                  }`}
+                />
               </div>
 
               {/* Nueva Contraseña */}

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useEffect } from 'react';
+import { useApp, canRole } from '../context/AppContext';
 import { Proyecto, DiagnosticoIA } from '../types/database';
 import { 
   ShieldCheck, 
@@ -19,6 +19,8 @@ export const QualityReviewModule: React.FC = () => {
   const { 
     proyectos, 
     guardarDiagnosticoCalidad, 
+    solicitarCambioImagen,
+    obtenerImagenProyecto,
     currentUser, 
     selectedProyecto, 
     setSelectedProyecto, 
@@ -29,8 +31,41 @@ export const QualityReviewModule: React.FC = () => {
   const isLight = theme === 'light';
 
   const [activeProject, setActiveProject] = useState<Proyecto>(
-    selectedProyecto || proyectos.find(p => p.estadoPipeline === 'revision_calidad') || proyectos[0]
+    selectedProyecto || proyectos.find(p => p.estadoPipeline === 'en_peritaje') || proyectos[0]
   );
+
+  // Foto que subió el cliente + pedido de cambio de imagen
+  const [imagen, setImagen] = useState<string | null>(null);
+  const [imagenCargando, setImagenCargando] = useState(false);
+  const [motivoImagen, setMotivoImagen] = useState('');
+  const [pidiendoImagen, setPidiendoImagen] = useState(false);
+
+  // Cuando llegan datos nuevos del servidor, refresca el proyecto abierto
+  useEffect(() => {
+    setActiveProject(prev => proyectos.find(p => p.proyectoId === prev?.proyectoId) || prev || proyectos[0]);
+  }, [proyectos]);
+
+  useEffect(() => {
+    let cancelado = false;
+    setImagen(null);
+    setMotivoImagen('');
+    setPidiendoImagen(false);
+    if (!activeProject) return;
+    setImagenCargando(true);
+    obtenerImagenProyecto(activeProject.proyectoId)
+      .then(img => { if (!cancelado) setImagen(img); })
+      .finally(() => { if (!cancelado) setImagenCargando(false); });
+    return () => { cancelado = true; };
+  }, [activeProject?.proyectoId]);
+
+  const handlePedirCambioImagen = async () => {
+    if (!activeProject || motivoImagen.trim().length < 5) {
+      showToast('Explica brevemente por qué la imagen no sirve (mínimo 5 caracteres).');
+      return;
+    }
+    const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
+    if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+  };
 
   // Perito evaluation form state
   const existingDiag = activeProject?.diagnostico;
@@ -45,7 +80,7 @@ export const QualityReviewModule: React.FC = () => {
     existingDiag?.sistemaRecomendado || '1 Mano Sellador Fijador Antialcalino + 2 Manos Pintura Elastómero'
   );
   const [notasPerito, setNotasPerito] = useState<string>(
-    existingDiag?.notasPerito || 'Inspección de adherencia y sustrato conforme a norma NTC 1335.'
+    existingDiag?.notasPerito || ''
   );
 
   const handleSelectProject = (p: Proyecto) => {
@@ -60,24 +95,17 @@ export const QualityReviewModule: React.FC = () => {
     }
   };
 
-  const handleSaveVerdict = (aprobado: boolean) => {
+  const handleSaveVerdict = async (aprobado: boolean) => {
     if (!activeProject) return;
 
-    guardarDiagnosticoCalidad(activeProject.proyectoId, {
+    await guardarDiagnosticoCalidad(activeProject.proyectoId, {
       humedadRelativa: Number(humedad),
       severidadFisuras: fisuras,
       patologiaDetectada: patologia,
       sistemaRecomendado: sistema,
       notasPerito,
       aprobadoCalidad: aprobado,
-      peritoNombre: currentUser ? `${currentUser.nombre} ${currentUser.apellido}` : 'Ing. Andrés Felipe Ospina',
     });
-
-    // Update active project instance
-    const updated = proyectos.find(p => p.proyectoId === activeProject.proyectoId);
-    if (updated) {
-      setActiveProject(updated);
-    }
   };
 
   const getHumidityStatus = (val: number) => {
@@ -132,7 +160,7 @@ export const QualityReviewModule: React.FC = () => {
           <div className="space-y-2.5 max-h-[750px] overflow-y-auto pr-1">
             {proyectos.map((p) => {
               const isSelected = activeProject?.proyectoId === p.proyectoId;
-              const isPending = p.estadoPipeline === 'revision_calidad';
+              const isPending = p.estadoPipeline === 'en_peritaje';
               const diag = p.diagnostico;
 
               return (
@@ -240,6 +268,54 @@ export const QualityReviewModule: React.FC = () => {
                     <Clock className="w-4 h-4 text-amber-500 animate-spin" />
                     <span>EN AUDITORÍA TÉCNICA</span>
                   </div>
+                )}
+              </div>
+
+              {/* Imagen enviada por el cliente */}
+              <div className={`border rounded-xl p-4 mb-5 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                <span className={`text-xs font-bold block mb-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  Imagen enviada por el cliente
+                </span>
+                {imagenCargando ? (
+                  <p className="text-xs text-slate-400">Cargando imagen…</p>
+                ) : imagen ? (
+                  <img src={imagen} alt="Superficie a intervenir" className="max-h-72 rounded-lg border border-slate-700 object-contain" />
+                ) : (
+                  <p className="text-xs text-slate-400">Este proyecto no tiene imagen guardada.</p>
+                )}
+
+                {activeProject.estadoPipeline === 'imagen_por_corregir' && (
+                  <p className="mt-3 text-xs text-rose-400">
+                    Se pidió al cliente cambiar la imagen{activeProject.observacionImagen ? `: “${activeProject.observacionImagen}”` : '.'}
+                  </p>
+                )}
+
+                {canRole.emitirVeredicto(currentUser?.rol.rol) && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
+                  pidiendoImagen ? (
+                    <div className="mt-3 space-y-2">
+                      <textarea
+                        rows={2}
+                        value={motivoImagen}
+                        onChange={(e) => setMotivoImagen(e.target.value)}
+                        placeholder="Dile al cliente qué debe corregir (borrosa, muy oscura, no se ve la fisura…)"
+                        className={`w-full rounded-lg p-3 text-xs focus:outline-none focus:border-amber-500 border ${
+                          isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                        }`}
+                      />
+                      <div className="flex gap-2">
+                        <button type="button" onClick={handlePedirCambioImagen} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer">
+                          Enviar solicitud al cliente
+                        </button>
+                        <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); }} className="px-3 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 cursor-pointer">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setPidiendoImagen(true)} className="mt-3 px-3 py-1.5 text-xs font-bold rounded-lg border border-amber-500/50 text-amber-500 hover:bg-amber-500/10 cursor-pointer">
+                      Pedir al cliente otra imagen
+                    </button>
+                  )
                 )}
               </div>
 
@@ -358,7 +434,7 @@ export const QualityReviewModule: React.FC = () => {
                         Firma Digital del Perito Responsable
                       </span>
                       <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {existingDiag?.peritoNombre || currentUser?.nombre || 'Ing. Andrés Felipe Ospina'} • ColorLink S.A.S.
+                        {existingDiag?.peritoNombre || (currentUser ? `${currentUser.nombre} ${currentUser.apellido}` : '')} • ColorLink S.A.S.
                       </span>
                     </div>
                   </div>
@@ -369,6 +445,7 @@ export const QualityReviewModule: React.FC = () => {
                 </div>
 
                 {/* Verdict Buttons */}
+                {canRole.emitirVeredicto(currentUser?.rol.rol) ? (
                 <div className="pt-2 flex flex-col sm:flex-row gap-3">
                   <button
                     type="button"
@@ -385,9 +462,12 @@ export const QualityReviewModule: React.FC = () => {
                     className="flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                    <span>Aprobar Sustrato y Autorizar Tintometría</span>
+                    <span>Aprobar Sustrato y Autorizar Despacho</span>
                   </button>
                 </div>
+                ) : (
+                  <p className="pt-2 text-xs text-slate-400">Solo el Perito de Calidad o un Administrador puede emitir el dictamen.</p>
+                )}
               </div>
             </div>
           </div>
