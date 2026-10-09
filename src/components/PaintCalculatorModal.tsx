@@ -7,12 +7,16 @@ export const PaintCalculatorModal: React.FC = () => {
 
   const [area, setArea] = useState<number>(500);
   const [manos, setManos] = useState<number>(2);
-  const [productoId, setProductoId] = useState<string>(productos[0]?.productoId || '');
+  // Se elige la LÍNEA de producto (nombre); sus presentaciones Cuñete/Galón dan los precios reales
+  const [lineaNombre, setLineaNombre] = useState<string>('');
   const [desperdicioPct, setDesperdicioPct] = useState<number>(6);
 
   if (!calculatorModalOpen) return null;
 
-  const selectedProd = productos.find(p => p.productoId === productoId) || productos[0];
+  const lineas = Array.from(new Set(productos.map(p => p.nombre))).sort((a, b) => a.localeCompare(b, 'es'));
+  const nombreActivo = lineas.includes(lineaNombre) ? lineaNombre : lineas[0];
+  const familia = productos.filter(p => p.nombre === nombreActivo);
+  const selectedProd = familia.find(p => p.rendimientoM2 && p.rendimientoM2 > 0) || familia[0];
 
   // El catálogo llega del servidor: si aún no carga o está vacío, no hay nada que calcular
   if (!selectedProd) {
@@ -26,19 +30,25 @@ export const PaintCalculatorModal: React.FC = () => {
     );
   }
 
-  const rendimientoM2 = selectedProd.rendimientoM2 || 45;
+  const rendimientoM2 = selectedProd.rendimientoM2 && selectedProd.rendimientoM2 > 0 ? selectedProd.rendimientoM2 : null;
 
-  // Formula
-  const totalM2Manos = area * manos;
-  const galonesTeoricos = totalM2Manos / rendimientoM2;
-  const galonesConDesperdicio = Number((galonesTeoricos * (1 + desperdicioPct / 100)).toFixed(1));
+  // Misma fórmula que el servidor (/api/projects/:id/quote)
+  const areaValida = Number(area) > 0 ? Number(area) : 0;
+  const galonesConDesperdicio = rendimientoM2
+    ? Number((((areaValida * manos) / rendimientoM2) * (1 + desperdicioPct / 100)).toFixed(1))
+    : 0;
   const cunetes5g = Math.floor(galonesConDesperdicio / 5);
   const residuo = galonesConDesperdicio - (cunetes5g * 5);
-  const galones1g = residuo > 0 ? Math.ceil(residuo) : 0;
+  const galones1g = residuo > 0.0001 ? Math.ceil(residuo) : 0;
 
-  const precioCunete = selectedProd.presentacion?.includes('Cuñete') ? (selectedProd.precio || 365000) : 365000;
-  const precioGalon = 78000;
-  const totalEstimado = (cunetes5g * precioCunete) + (galones1g * precioGalon);
+  // Precios del catálogo real: cada presentación con su precio; si falta una, se deriva como lo hace el servidor (factor 4.6)
+  const cuneteProd = familia.find(p => p.presentacion?.includes('Cuñete'));
+  const galonProd = familia.find(p => p.presentacion?.includes('Galón'));
+  const precioGalon = galonProd?.precio ?? (cuneteProd?.precio ? cuneteProd.precio / 4.6 : selectedProd.precio);
+  const precioCunete = cuneteProd?.precio ?? (galonProd?.precio ? galonProd.precio * 4.6 : selectedProd.precio);
+  const totalEstimado = precioGalon && precioCunete
+    ? Math.round((cunetes5g * precioCunete) + (galones1g * precioGalon))
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
@@ -65,8 +75,8 @@ export const PaintCalculatorModal: React.FC = () => {
             </label>
             <input
               type="number"
-              min={10}
-              step={10}
+              min={1}
+              step="any"
               value={area}
               onChange={(e) => setArea(Number(e.target.value))}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
@@ -110,19 +120,27 @@ export const PaintCalculatorModal: React.FC = () => {
               Línea de Recubrimiento ColorLink
             </label>
             <select
-              value={productoId}
-              onChange={(e) => setProductoId(e.target.value)}
+              value={nombreActivo}
+              onChange={(e) => setLineaNombre(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
             >
-              {productos.map(p => (
-                <option key={p.productoId} value={p.productoId}>
-                  {p.nombre} ({p.rendimientoM2} m²/gal)
-                </option>
-              ))}
+              {lineas.map(nombre => {
+                const r = productos.find(p => p.nombre === nombre && p.rendimientoM2)?.rendimientoM2;
+                return (
+                  <option key={nombre} value={nombre}>
+                    {nombre} ({r ? `${r} m²/gal` : 'sin rendimiento'})
+                  </option>
+                );
+              })}
             </select>
           </div>
 
           {/* Results Box */}
+          {!rendimientoM2 ? (
+            <div className="bg-slate-900 border border-amber-500/40 rounded-xl p-4 text-amber-300">
+              Esta línea no tiene rendimiento (m²/galón) configurado en el catálogo; no se puede calcular por área.
+            </div>
+          ) : (
           <div className="bg-slate-900 border border-emerald-500/40 rounded-xl p-4 space-y-3">
             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
               Despiece Óptimo para Pedido
@@ -149,9 +167,13 @@ export const PaintCalculatorModal: React.FC = () => {
 
             <div className="flex justify-between items-center text-xs font-bold">
               <span className="text-emerald-400">Presupuesto Estimado:</span>
-              <span className="text-emerald-400 font-mono text-sm">${totalEstimado.toLocaleString('es-CO')} COP</span>
+              <span className="text-emerald-400 font-mono text-sm">
+                {totalEstimado != null ? `$${totalEstimado.toLocaleString('es-CO')} COP` : 'Sin precio en catálogo'}
+              </span>
             </div>
+            <p className="text-[10px] text-slate-500">Precio de lista antes de IVA y descuentos. Para guardar una cotización usa el módulo Proyectos.</p>
           </div>
+          )}
 
           <div className="pt-2">
             <button
@@ -159,7 +181,7 @@ export const PaintCalculatorModal: React.FC = () => {
               onClick={() => setCalculatorModalOpen(false)}
               className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
             >
-              Aplicar al Proyecto
+              Cerrar
             </button>
           </div>
         </div>

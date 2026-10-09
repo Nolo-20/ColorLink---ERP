@@ -17,10 +17,28 @@ import { PickupRedeemScannerModal } from './components/PickupRedeemScannerModal'
 import { EmployeeManagementPanel } from './components/EmployeeManagementPanel';
 import { PaintCalculatorModal } from './components/PaintCalculatorModal';
 import { UserProfileModal } from './components/UserProfileModal';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
+
+/** Aviso global: verde para confirmaciones, rojo para errores. */
+const GlobalToast: React.FC<{ message: string; kind: 'ok' | 'error' }> = ({ message, kind }) => {
+  const isError = kind === 'error';
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      className={`fixed bottom-6 right-6 z-[60] max-w-sm bg-[#091526] border shadow-2xl text-white px-4 py-3 rounded-xl flex items-center gap-3 ${
+        isError ? 'border-rose-500/70 shadow-rose-500/20' : 'border-emerald-500/60 shadow-emerald-500/20'
+      }`}
+    >
+      {isError
+        ? <XCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+        : <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />}
+      <span className="text-xs font-semibold">{message}</span>
+    </div>
+  );
+};
 
 const MainLayout: React.FC = () => {
-  const { currentUser, authLoading, activeTab, toastMessage, theme } = useApp();
+  const { currentUser, authLoading, activeTab, toastMessage, toastKind, theme } = useApp();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Mientras se verifica la sesión guardada en el servidor
@@ -41,12 +59,7 @@ const MainLayout: React.FC = () => {
       <>
         <ModernLoginScreen />
         {/* Global Toast */}
-        {toastMessage && (
-          <div className="fixed bottom-6 right-6 z-50 bg-[#091526] border border-emerald-500/60 shadow-2xl shadow-emerald-500/10 text-white px-4 py-3 rounded-xl flex items-center gap-3 animate-bounce">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-            <span className="text-xs font-semibold">{toastMessage}</span>
-          </div>
-        )}
+        {toastMessage && <GlobalToast message={toastMessage} kind={toastKind} />}
       </>
     );
   }
@@ -107,12 +120,7 @@ const MainLayout: React.FC = () => {
       <UserProfileModal />
 
       {/* Global Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#091526] border border-emerald-500/60 shadow-2xl shadow-emerald-500/20 text-white px-4 py-3 rounded-xl flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-          <span className="text-xs font-semibold">{toastMessage}</span>
-        </div>
-      )}
+      {toastMessage && <GlobalToast message={toastMessage} kind={toastKind} />}
     </div>
   );
 };

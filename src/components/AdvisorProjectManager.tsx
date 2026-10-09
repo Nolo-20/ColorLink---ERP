@@ -50,14 +50,30 @@ export const AdvisorProjectManager: React.FC = () => {
 
 
   // Form states for technical quotation calculator
-  const [calcArea, setCalcArea] = useState<number>(activeProject?.area || 1200);
-  const [calcManos, setCalcManos] = useState<number>(2);
-  const [calcProductoId, setCalcProductoId] = useState<string>(productos[0]?.productoId || '');
-  const [calcDescuento, setCalcDescuento] = useState<number>(activeProject?.descuentoAsesorPct || 5);
+  // Solo se cotiza con productos que tienen presentación Cuñete (el servidor arma cuñetes + galones de la misma línea)
+  const productosCunete = productos.filter(p => p.presentacion?.includes('Cuñete'));
 
+  const [calcArea, setCalcArea] = useState<number>(activeProject?.area ?? 0);
+  const [calcManos, setCalcManos] = useState<number>(2);
+  const [calcProductoId, setCalcProductoId] = useState<string>(productosCunete[0]?.productoId || '');
+  const [calcDescuento, setCalcDescuento] = useState<number>(activeProject?.descuentoAsesorPct ?? 0);
+  const [cotizando, setCotizando] = useState(false);
+  const [enviandoCalidad, setEnviandoCalidad] = useState(false);
+  const [pidiendoImagenBusy, setPidiendoImagenBusy] = useState(false);
+
+  // El producto elegido debe existir en la lista visible; si no, se toma el primero con presentación Cuñete
   useEffect(() => {
-    if (!calcProductoId && productos[0]) setCalcProductoId(productos[0].productoId);
+    if (!productosCunete.some(p => p.productoId === calcProductoId)) {
+      setCalcProductoId(productosCunete[0]?.productoId || '');
+    }
   }, [productos, calcProductoId]);
+
+  // Al cambiar de proyecto (o cuando llega del servidor) se cargan su área y su descuento reales
+  useEffect(() => {
+    if (!activeProject) return;
+    setCalcArea(activeProject.area ?? 0);
+    setCalcDescuento(activeProject.descuentoAsesorPct ?? 0);
+  }, [activeProject?.proyectoId]);
 
   const [imagen, setImagen] = useState<string | null>(null);
   const [imagenCargando, setImagenCargando] = useState(false);
@@ -82,40 +98,69 @@ export const AdvisorProjectManager: React.FC = () => {
       showToast('Explica brevemente por qué la imagen no sirve (mínimo 5 caracteres).');
       return;
     }
-    const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
-    if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+    if (pidiendoImagenBusy) return;
+    setPidiendoImagenBusy(true);
+    try {
+      const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
+      if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+    } finally {
+      setPidiendoImagenBusy(false);
+    }
   };
 
   const handleSelectProject = (p: Proyecto) => {
     setActiveProject(p);
     setSelectedProyecto(p);
-    setCalcArea(p.area || 1000);
-    setCalcDescuento(p.descuentoAsesorPct || 0);
   };
 
   const handleCalculateQuote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeProject || !calcProductoId) return;
-    await calcularYGuardarCotizacion(
-      activeProject.proyectoId,
-      Number(calcArea),
-      Number(calcManos),
-      calcProductoId,
-      Number(calcDescuento)
-    );
+    if (cotizando) return;
+    if (!activeProject) return;
+    if (!calcProductoId) {
+      showToast('No hay productos con presentación Cuñete en el catálogo para cotizar.', 'error');
+      return;
+    }
+    if (!(Number(calcArea) > 0)) {
+      showToast('Indica el área a pintar en m² (mayor a 0).', 'error');
+      return;
+    }
+    setCotizando(true);
+    try {
+      await calcularYGuardarCotizacion(
+        activeProject.proyectoId,
+        Number(calcArea),
+        Number(calcManos),
+        calcProductoId,
+        Number(calcDescuento)
+      );
+    } finally {
+      setCotizando(false);
+    }
   };
 
   const handleSendToQuality = async () => {
-    if (!activeProject) return;
-    const ok = await cambiarEstadoProyecto(
-      activeProject.proyectoId,
-      'en_peritaje',
-      'El asesor comercial envió el proyecto y la cotización a verificación técnica del perito de calidad.'
-    );
-    if (ok) showToast('Proyecto enviado a la cola del Perito de Calidad.');
+    if (!activeProject || enviandoCalidad) return;
+    setEnviandoCalidad(true);
+    try {
+      const ok = await cambiarEstadoProyecto(
+        activeProject.proyectoId,
+        'en_peritaje',
+        'El asesor comercial envió el proyecto y la cotización a verificación técnica del perito de calidad.'
+      );
+      if (ok) showToast('Proyecto enviado a la cola del Perito de Calidad.');
+    } finally {
+      setEnviandoCalidad(false);
+    }
   };
 
-  const selectedProduct = productos.find(p => p.productoId === calcProductoId) || productos[0];
+  const puedeEditar = canRole.editarProyecto(currentUser?.rol.rol);
+  const puedeEscalar = puedeEditar || currentUser?.rol.rol === 'Perito de Calidad';
+  const proyectoCerrado = !!activeProject && ['despachado', 'cancelado'].includes(activeProject.estadoPipeline);
+  const admiteCotizacion = !!activeProject && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline);
+  // El descuento se guarda en el proyecto al cotizar (la tabla de cotizaciones no lo tiene)
+  const descuentoQuote = activeProject?.descuentoAsesorPct ?? 0;
+  const numeroHistorialEscalados = activeProject?.historialAsesores?.length ?? 0;
   const latestQuote = activeProject?.cotizaciones && activeProject.cotizaciones[0];
 
   return (
@@ -176,7 +221,7 @@ export const AdvisorProjectManager: React.FC = () => {
                       {ESTADO_PROYECTO_LABEL[p.estadoPipeline]}
                     </span>
                     <span className="text-[11px] font-mono text-emerald-500 font-bold">
-                      {p.area} m²
+                      {p.area != null ? `${p.area} m²` : '—'}
                     </span>
                   </div>
 
@@ -206,7 +251,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     </div>
 
                     <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {new Date(p.updatedAt).toLocaleDateString('es-CO')}
+                      {p.updatedAt ? new Date(p.updatedAt).toLocaleDateString('es-CO') : '—'}
                     </span>
                   </div>
                 </div>
@@ -234,6 +279,7 @@ export const AdvisorProjectManager: React.FC = () => {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  {puedeEscalar && !proyectoCerrado && (
                   <button
                     onClick={() => {
                       setProjectToEscalate(activeProject);
@@ -248,18 +294,20 @@ export const AdvisorProjectManager: React.FC = () => {
                     <UserPlus className="w-4 h-4 text-indigo-500" />
                     <span>Escalar a otro Asesor</span>
                   </button>
+                  )}
 
-                  {(activeProject.estadoPipeline === 'en_revision' || activeProject.estadoPipeline === 'cotizado') && (
+                  {puedeEditar && (activeProject.estadoPipeline === 'en_revision' || activeProject.estadoPipeline === 'cotizado') && (
                   <button
                     onClick={handleSendToQuality}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                    disabled={enviandoCalidad}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border disabled:opacity-60 disabled:cursor-not-allowed ${
                       isLight 
                         ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200' 
                         : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
                     }`}
                   >
                     <CheckCircle2 className="w-4 h-4 text-amber-500" />
-                    <span>Enviar a Revisión Calidad</span>
+                    <span>{enviandoCalidad ? 'Enviando…' : 'Enviar a Revisión Calidad'}</span>
                   </button>
                   )}
                 </div>
@@ -291,20 +339,21 @@ export const AdvisorProjectManager: React.FC = () => {
                           ? 'bg-emerald-100 text-emerald-800 border-emerald-200' 
                           : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                       }`}>
-                        {activeProject.historialAsesores && activeProject.historialAsesores.length > 1
-                          ? `Escalado (${activeProject.historialAsesores.length - 1} traspasos)`
-                          : 'Asignación Automática al Registrar'}
+                        {numeroHistorialEscalados > 0
+                          ? `Escalado (${numeroHistorialEscalados} ${numeroHistorialEscalados === 1 ? 'traspaso' : 'traspasos'})`
+                          : activeProject.asesorAsignado ? 'Asignación directa' : 'Pendiente de asignar'}
                       </span>
                     </div>
                     <span className={`font-extrabold text-sm block ${isLight ? 'text-slate-900' : 'text-white'}`}>
                       {activeProject.asesorAsignado ? `${activeProject.asesorAsignado.nombre} ${activeProject.asesorAsignado.apellido}` : 'Sin asignar'}
                     </span>
                     <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {activeProject.asesorAsignado?.email || 'asesor1@colorlink.co'} • {activeProject.asesorAsignado?.telefono || '+57 300 219 4432'}
+                      {activeProject.asesorAsignado?.email || '—'} • {activeProject.asesorAsignado?.telefono || '—'}
                     </span>
                   </div>
                 </div>
 
+                {puedeEscalar && !proyectoCerrado && (
                 <button
                   type="button"
                   onClick={() => {
@@ -320,6 +369,7 @@ export const AdvisorProjectManager: React.FC = () => {
                   <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
                   <span>Transferir / Reasignar Asesor</span>
                 </button>
+                )}
               </div>
 
               {/* Key Specs Bar */}
@@ -329,20 +379,20 @@ export const AdvisorProjectManager: React.FC = () => {
                 <div>
                   <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Constructora / Cliente</span>
                   <span className={`text-xs font-bold truncate block ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    {activeProject.empresa?.razonSocial}
+                    {activeProject.empresa?.razonSocial || '—'}
                   </span>
                   <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    NIT: {activeProject.empresa?.nitCedula}
+                    NIT: {activeProject.empresa?.nitCedula || '—'}
                   </span>
                 </div>
 
                 <div>
                   <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Dirección de Despacho</span>
                   <span className={`text-xs font-medium block truncate ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                    {activeProject.empresa?.direccionDespacho}
+                    {activeProject.empresa?.direccionDespacho || '—'}
                   </span>
                   <span className="text-[10px] text-emerald-500 font-semibold">
-                    {activeProject.empresa?.ciudad?.ciudad || 'Medellín'}
+                    {activeProject.empresa?.ciudad?.ciudad || '—'}
                   </span>
                 </div>
 
@@ -354,18 +404,18 @@ export const AdvisorProjectManager: React.FC = () => {
                       style={{ backgroundColor: activeProject.colorHex || '#CBD5E1' }}
                     />
                     <span className={`text-xs font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                      {activeProject.color}
+                      {activeProject.color || '—'}
                     </span>
                   </div>
                   <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    HEX: {activeProject.colorHex}
+                    HEX: {activeProject.colorHex || '—'}
                   </span>
                 </div>
 
                 <div>
                   <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Superficie & Ambiente</span>
                   <span className={`text-xs font-bold block ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    {activeProject.ambiente}
+                    {activeProject.ambiente || '—'}
                   </span>
                   <span className={`text-[10px] truncate block ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                     {activeProject.tipoSuperficie}
@@ -392,7 +442,7 @@ export const AdvisorProjectManager: React.FC = () => {
                   </p>
                 )}
 
-                {canRole.editarProyecto(currentUser?.rol.rol) && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
+                {puedeEditar && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
                   pidiendoImagen ? (
                     <div className="mt-3 space-y-2">
                       <textarea
@@ -405,8 +455,8 @@ export const AdvisorProjectManager: React.FC = () => {
                         }`}
                       />
                       <div className="flex gap-2">
-                        <button type="button" onClick={handlePedirCambioImagen} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer">
-                          Enviar solicitud al cliente
+                        <button type="button" onClick={handlePedirCambioImagen} disabled={pidiendoImagenBusy} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+                          {pidiendoImagenBusy ? 'Enviando…' : 'Enviar solicitud al cliente'}
                         </button>
                         <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); }} className="px-3 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 cursor-pointer">
                           Cancelar
@@ -450,6 +500,15 @@ export const AdvisorProjectManager: React.FC = () => {
                 </span>
               </div>
 
+              {!puedeEditar ? (
+                <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Solo un Asesor Comercial o un Administrador puede generar cotizaciones.
+                </p>
+              ) : !admiteCotizacion ? (
+                <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Este proyecto ya avanzó ({ESTADO_PROYECTO_LABEL[activeProject.estadoPipeline]}) y no admite una nueva cotización.
+                </p>
+              ) : (
               <form onSubmit={handleCalculateQuote} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
@@ -459,8 +518,8 @@ export const AdvisorProjectManager: React.FC = () => {
                     type="number"
                     value={calcArea}
                     onChange={(e) => setCalcArea(Number(e.target.value))}
-                    min={10}
-                    step={10}
+                    min={1}
+                    step="any"
                     required
                     className={`w-full rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500 border ${
                       isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
@@ -496,9 +555,10 @@ export const AdvisorProjectManager: React.FC = () => {
                       isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
                     }`}
                   >
-                    {productos.filter(p => p.presentacion?.includes('Cuñete')).map(p => (
+                    {productosCunete.length === 0 && <option value="">Sin productos disponibles</option>}
+                    {productosCunete.map(p => (
                       <option key={p.productoId} value={p.productoId}>
-                        {p.nombre} ({p.rendimientoM2} m²/gal)
+                        {p.nombre} ({p.rendimientoM2 ?? '—'} m²/gal)
                       </option>
                     ))}
                   </select>
@@ -522,13 +582,15 @@ export const AdvisorProjectManager: React.FC = () => {
                     />
                     <button
                       type="submit"
-                      className="py-2 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-colors flex-shrink-0 cursor-pointer shadow-sm"
+                      disabled={cotizando || !calcProductoId}
+                      className="py-2 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-colors flex-shrink-0 cursor-pointer shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      Calcular
+                      {cotizando ? 'Calculando…' : 'Calcular'}
                     </button>
                   </div>
                 </div>
               </form>
+              )}
 
               {/* Quotation Summary Card */}
               {latestQuote && (
@@ -548,12 +610,12 @@ export const AdvisorProjectManager: React.FC = () => {
                           ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
                           : 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
                       }`}>
-                        {latestQuote.estado}
+                        {latestQuote.estado || '—'}
                       </span>
                     </div>
 
                     <span className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {new Date(latestQuote.createdAt).toLocaleString('es-CO')}
+                      {latestQuote.createdAt ? new Date(latestQuote.createdAt).toLocaleString('es-CO') : '—'}
                     </span>
                   </div>
 
@@ -564,7 +626,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     }`}>
                       <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Galones Teóricos Totales</span>
                       <span className={`text-2xl font-black font-mono mt-0.5 block ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                        {latestQuote.galonesExactos} <span className={`text-xs font-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>gal</span>
+                        {latestQuote.galonesExactos ?? '—'} <span className={`text-xs font-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>gal</span>
                       </span>
                       <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Incluye 6% desperdicio de obra</span>
                     </div>
@@ -574,7 +636,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     }`}>
                       <span className={`text-[11px] font-semibold block ${isLight ? 'text-emerald-800' : 'text-emerald-300'}`}>Cuñetes a Despachar (5 Gal)</span>
                       <span className="text-2xl font-black text-emerald-500 font-mono mt-0.5 block">
-                        {latestQuote.cunetes5g} <span className="text-xs font-normal opacity-80">cuñetes</span>
+                        {latestQuote.cunetes5g ?? 0} <span className="text-xs font-normal opacity-80">cuñetes</span>
                       </span>
                       <span className={`text-[10px] ${isLight ? 'text-emerald-700' : 'text-emerald-300/70'}`}>{(latestQuote.cunetes5g || 0) * 5} galones en envases grandes</span>
                     </div>
@@ -584,7 +646,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     }`}>
                       <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Galones Sueltos de Ajuste (1 Gal)</span>
                       <span className="text-2xl font-black text-sky-500 font-mono mt-0.5 block">
-                        {latestQuote.galones1g} <span className={`text-xs font-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>galones</span>
+                        {latestQuote.galones1g ?? 0} <span className={`text-xs font-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>galones</span>
                       </span>
                       <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Para retoques y recortes</span>
                     </div>
@@ -595,29 +657,31 @@ export const AdvisorProjectManager: React.FC = () => {
                     isLight ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'
                   }`}>
                     <div className={`flex justify-between ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                      <span>Subtotal bruto ({latestQuote.cunetes5g} Cuñetes + {latestQuote.galones1g} Galones):</span>
+                      <span>Subtotal bruto ({latestQuote.cunetes5g ?? 0} Cuñetes + {latestQuote.galones1g ?? 0} Galones):</span>
                       <span className={`font-mono ${isLight ? 'text-slate-900 font-semibold' : 'text-white'}`}>
-                        ${((latestQuote.subtotal || 0) / (1 - (latestQuote.descuentoAsesorPct || 0)/100)).toLocaleString('es-CO', { maximumFractionDigits: 0 })} COP
+                        {latestQuote.subtotal != null && descuentoQuote < 100
+                          ? `$${Math.round(latestQuote.subtotal / (1 - descuentoQuote / 100)).toLocaleString('es-CO')} COP`
+                          : '—'}
                       </span>
                     </div>
 
-                    {(latestQuote.descuentoAsesorPct || 0) > 0 && (
+                    {descuentoQuote > 0 && descuentoQuote < 100 && latestQuote.subtotal != null && (
                       <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-medium">
-                        <span>Descuento Comercial de Asesor ({latestQuote.descuentoAsesorPct}%):</span>
+                        <span>Descuento Comercial de Asesor ({descuentoQuote}%):</span>
                         <span className="font-mono">
-                          - ${Math.round(((latestQuote.subtotal || 0) / (1 - (latestQuote.descuentoAsesorPct || 0)/100)) * ((latestQuote.descuentoAsesorPct || 0)/100)).toLocaleString('es-CO')} COP
+                          - ${Math.round((latestQuote.subtotal / (1 - descuentoQuote / 100)) * (descuentoQuote / 100)).toLocaleString('es-CO')} COP
                         </span>
                       </div>
                     )}
 
                     <div className={`flex justify-between ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                       <span>Subtotal gravable:</span>
-                      <span className={`font-mono ${isLight ? 'text-slate-900 font-semibold' : 'text-white'}`}>${latestQuote.subtotal?.toLocaleString('es-CO')} COP</span>
+                      <span className={`font-mono ${isLight ? 'text-slate-900 font-semibold' : 'text-white'}`}>{latestQuote.subtotal != null ? `$${latestQuote.subtotal.toLocaleString('es-CO')} COP` : '—'}</span>
                     </div>
 
                     <div className={`flex justify-between ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                       <span>IVA (19% régimen común):</span>
-                      <span className={`font-mono ${isLight ? 'text-slate-900 font-semibold' : 'text-white'}`}>${latestQuote.iva?.toLocaleString('es-CO')} COP</span>
+                      <span className={`font-mono ${isLight ? 'text-slate-900 font-semibold' : 'text-white'}`}>{latestQuote.iva != null ? `$${latestQuote.iva.toLocaleString('es-CO')} COP` : '—'}</span>
                     </div>
 
                     <div className={`flex justify-between text-sm font-bold pt-2 border-t ${
@@ -625,7 +689,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     }`}>
                       <span className="text-emerald-500">Total Liquidado en Obra:</span>
                       <span className="font-mono text-emerald-500 text-base">
-                        ${latestQuote.total?.toLocaleString('es-CO')} COP
+                        {latestQuote.total != null ? `$${latestQuote.total.toLocaleString('es-CO')} COP` : '—'}
                       </span>
                     </div>
                   </div>
@@ -633,7 +697,13 @@ export const AdvisorProjectManager: React.FC = () => {
               )}
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className={`lg:col-span-8 border rounded-2xl p-8 text-center text-sm ${
+            isLight ? 'bg-white border-slate-200 text-slate-500' : 'bg-[#091526] border-slate-800 text-slate-400'
+          }`}>
+            No hay proyectos registrados todavía.
+          </div>
+        )}
       </div>
 
     </div>

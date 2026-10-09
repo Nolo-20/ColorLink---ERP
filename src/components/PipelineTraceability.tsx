@@ -73,6 +73,7 @@ export const PipelineTraceability: React.FC = () => {
     setPickupModalOpen,
     setEscalateModalOpen,
     setProjectToEscalate,
+    hasModuleAccess,
     theme
   } = useApp();
 
@@ -84,6 +85,7 @@ export const PipelineTraceability: React.FC = () => {
   const [modalChangeStatusProject, setModalChangeStatusProject] = useState<Proyecto | null>(null);
   const [targetStatus, setTargetStatus] = useState<EstadoPipeline>('en_peritaje');
   const [statusNote, setStatusNote] = useState<string>('');
+  const [guardandoEstado, setGuardandoEstado] = useState(false);
 
   const filteredProyectos = activeStageFilter === 'all' 
     ? proyectos 
@@ -91,6 +93,12 @@ export const PipelineTraceability: React.FC = () => {
 
   const puedeCambiarEstado = (p: Proyecto) =>
     (currentUser?.rol.rol === 'Administrador' || currentUser?.rol.rol === 'Asesor Comercial') &&
+    !ESTADOS_PROYECTO_CERRADOS.includes(p.estadoPipeline);
+
+  // /api/projects/:id/reassign solo acepta asesor, calidad o administrador y rechaza proyectos cerrados
+  const rolActual = currentUser?.rol.rol;
+  const puedeEscalar = (p: Proyecto) =>
+    (rolActual === 'Administrador' || rolActual === 'Asesor Comercial' || rolActual === 'Perito de Calidad') &&
     !ESTADOS_PROYECTO_CERRADOS.includes(p.estadoPipeline);
 
   const handleOpenStatusModal = (p: Proyecto) => {
@@ -102,9 +110,14 @@ export const PipelineTraceability: React.FC = () => {
 
   const handleConfirmStatusChange = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!modalChangeStatusProject) return;
-    const ok = await cambiarEstadoProyecto(modalChangeStatusProject.proyectoId, targetStatus, statusNote);
-    if (ok) setModalChangeStatusProject(null);
+    if (!modalChangeStatusProject || guardandoEstado) return;
+    setGuardandoEstado(true);
+    try {
+      const ok = await cambiarEstadoProyecto(modalChangeStatusProject.proyectoId, targetStatus, statusNote);
+      if (ok) setModalChangeStatusProject(null);
+    } finally {
+      setGuardandoEstado(false);
+    }
   };
 
   const handleInspectProject = (p: Proyecto) => {
@@ -229,7 +242,7 @@ export const PipelineTraceability: React.FC = () => {
                   </span>
                   <span className={`text-[11px] font-mono flex items-center gap-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                     <Calendar className="w-3 h-3 text-slate-400" />
-                    {new Date(proy.updatedAt).toLocaleDateString('es-CO')}
+                    {proy.updatedAt ? new Date(proy.updatedAt).toLocaleDateString('es-CO') : '—'}
                   </span>
                 </div>
 
@@ -245,7 +258,7 @@ export const PipelineTraceability: React.FC = () => {
                   <Building2 className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
                   <span className="truncate">{proy.empresa?.razonSocial || 'Cliente General'}</span>
                   <span>•</span>
-                  <span className="text-emerald-500 font-medium">{proy.empresa?.ciudad?.ciudad || 'Medellín'}</span>
+                  <span className="text-emerald-500 font-medium">{proy.empresa?.ciudad?.ciudad || '—'}</span>
                 </div>
 
                 {/* Technical Specs: Color Swatch + Area + Superficie */}
@@ -259,18 +272,18 @@ export const PipelineTraceability: React.FC = () => {
                         className="w-3.5 h-3.5 rounded-full border border-slate-300 dark:border-white/20 shadow-sm inline-block"
                         style={{ backgroundColor: proy.colorHex || '#CBD5E1' }}
                       />
-                      <span>{proy.color || 'Blanco Estándar'}</span>
+                      <span>{proy.color || '—'}</span>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
                     <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>Área a recubrir:</span>
-                    <span className={`font-semibold font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{proy.area?.toLocaleString()} m²</span>
+                    <span className={`font-semibold font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{proy.area != null ? `${proy.area.toLocaleString('es-CO')} m²` : '—'}</span>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
                     <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>Ambiente / Sustrato:</span>
-                    <span className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{proy.ambiente}</span>
+                    <span className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{proy.ambiente || '—'}</span>
                   </div>
                 </div>
 
@@ -284,7 +297,7 @@ export const PipelineTraceability: React.FC = () => {
                         Volumen Cotizado
                       </span>
                       <span className="text-emerald-700 dark:text-emerald-300 font-mono font-bold">
-                        ${latestQuote.total?.toLocaleString('es-CO')} COP
+                        {latestQuote.total != null ? `$${latestQuote.total.toLocaleString('es-CO')} COP` : '—'}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-center mt-2">
@@ -315,7 +328,9 @@ export const PipelineTraceability: React.FC = () => {
                         Calidad Peritaje:
                       </span>
                       <span className={`font-semibold ${diag.aprobadoCalidad ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                        {diag.aprobadoCalidad ? `Aprobado (${diag.humedadRelativa}% Hum.)` : 'En Evaluación'}
+                        {diag.aprobadoCalidad
+                          ? (diag.humedadRelativa != null ? `Aprobado (${diag.humedadRelativa}% Hum.)` : 'Aprobado')
+                          : diag.fechaVeredicto ? 'Con reparos' : 'En Evaluación'}
                       </span>
                     </div>
                   )}
@@ -345,6 +360,7 @@ export const PipelineTraceability: React.FC = () => {
                         {proy.asesorAsignado ? `${proy.asesorAsignado.nombre} ${proy.asesorAsignado.apellido}` : 'Sin asignar'}
                       </span>
                     </div>
+                    {puedeEscalar(proy) && (
                     <button
                       onClick={() => {
                         setProjectToEscalate(proy);
@@ -356,6 +372,7 @@ export const PipelineTraceability: React.FC = () => {
                       <UserPlus className="w-3 h-3" />
                       <span>Escalar</span>
                     </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -391,6 +408,7 @@ export const PipelineTraceability: React.FC = () => {
                 </div>
 
                 <div className={`flex items-center justify-between text-xs px-1 pt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {hasModuleAccess('proyectos') ? (
                   <button
                     onClick={() => handleInspectProject(proy)}
                     className="hover:text-emerald-500 transition-colors flex items-center gap-1 cursor-pointer"
@@ -398,8 +416,9 @@ export const PipelineTraceability: React.FC = () => {
                     <Eye className="w-3.5 h-3.5" />
                     <span>Ver Detalles</span>
                   </button>
+                  ) : <span />}
 
-                  {proy.estadoPipeline === 'en_peritaje' && (
+                  {proy.estadoPipeline === 'en_peritaje' && hasModuleAccess('calidad') && (
                     <button
                       onClick={() => handleInspectQuality(proy)}
                       className="text-amber-500 hover:underline flex items-center gap-1 cursor-pointer font-medium"
@@ -409,7 +428,7 @@ export const PipelineTraceability: React.FC = () => {
                     </button>
                   )}
 
-                  {(proy.estadoPipeline === 'aprobado_calidad' || proy.estadoPipeline === 'despachado') && (
+                  {(proy.estadoPipeline === 'aprobado_calidad' || proy.estadoPipeline === 'despachado') && hasModuleAccess('despachos') && (
                     <button
                       onClick={() => handleInspectDispatch(proy)}
                       className="text-sky-500 hover:underline flex items-center gap-1 cursor-pointer font-medium"
@@ -507,10 +526,11 @@ export const PipelineTraceability: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  disabled={guardandoEstado}
+                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  Confirmar Cambio
+                  {guardandoEstado ? 'Guardando…' : 'Confirmar Cambio'}
                 </button>
               </div>
             </form>
@@ -575,7 +595,7 @@ export const PipelineTraceability: React.FC = () => {
                           </span>
                         </div>
                         <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {new Date(mov.fecha).toLocaleString('es-CO')}
+                          {mov.fecha ? new Date(mov.fecha).toLocaleString('es-CO') : '—'}
                         </span>
                       </div>
 

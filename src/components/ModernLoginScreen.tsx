@@ -244,12 +244,8 @@ export const ModernLoginScreen: React.FC = () => {
               Recuperación de Contraseña
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Por políticas de seguridad interna de ColorLink, para restablecer tus credenciales debes pedirle al <strong>Administrador</strong> que te asigne una contraseña temporal desde el módulo <em>Gestión de Empleados</em>. Después podrás cambiarla en <em>Mi Perfil</em>.
+              Por políticas de seguridad interna de ColorLink, para restablecer tus credenciales debes pedirle al <strong>Administrador</strong> que te asigne una contraseña temporal desde el módulo <em>Gestión de Empleados</em> (botón <em>Editar</em> de tu ficha). Después podrás cambiarla en <em>Mi Perfil</em>.
             </p>
-            <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-xs space-y-1 font-mono text-slate-300">
-              <p>Mesa de Ayuda: soporte@colorlink.co</p>
-              <p>Extensión Interna: 101 - Sede Guayabal</p>
-            </div>
             <button
               onClick={() => setForgotPasswordNotice(false)}
               className="w-full py-2.5 bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs cursor-pointer"

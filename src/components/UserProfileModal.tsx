@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { passwordPolicyError, PASSWORD_POLICY_HINT } from '../passwordPolicy';
 import { 
   X, 
   User, 
@@ -16,18 +17,9 @@ import {
   Key, 
   Eye, 
   EyeOff,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react';
-
-// Preset professional avatars for quick selection
-const PRESET_AVATARS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=250&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=250&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=250&q=80',
-  'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=250&q=80',
-  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=250&q=80',
-];
 
 export const UserProfileModal: React.FC = () => {
   const { 
@@ -55,8 +47,10 @@ export const UserProfileModal: React.FC = () => {
   const [phoneError, setPhoneError] = useState<string>('');
   const [passwordError, setPasswordError] = useState<string>('');
   const [successNotice, setSuccessNotice] = useState<string>('');
+  const [saving, setSaving] = useState<boolean>(false);
 
-  // Sync with currentUser when modal opens
+  // Se sincroniza con currentUser solo al abrir el modal (no cuando currentUser cambia al guardar,
+  // porque eso borraría el aviso de éxito y el formulario)
   useEffect(() => {
     if (currentUser && profileModalOpen) {
       setPhotoUrl(currentUser.avatarUrl || '');
@@ -70,8 +64,11 @@ export const UserProfileModal: React.FC = () => {
       setPasswordError('');
       setSuccessNotice('');
       setShowCustomUrlInput(false);
+      setCustomUrl('');
+      setSaving(false);
     }
-  }, [currentUser, profileModalOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileModalOpen]);
 
   if (!profileModalOpen || !currentUser) return null;
 
@@ -89,6 +86,7 @@ export const UserProfileModal: React.FC = () => {
   // Handle local image file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
@@ -112,6 +110,8 @@ export const UserProfileModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setPasswordError('');
 
     // 1. Validate Phone: exactly 10 digits if filled
     if (telefono.trim().length > 0 && telefono.trim().length !== 10) {
@@ -125,8 +125,9 @@ export const UserProfileModal: React.FC = () => {
         setPasswordError('Escribe tu contraseña actual para poder cambiarla.');
         return;
       }
-      if (password.length < 8) {
-        setPasswordError('La nueva contraseña debe tener al menos 8 caracteres.');
+      const policyError = passwordPolicyError(password);
+      if (policyError) {
+        setPasswordError(policyError);
         return;
       }
       if (password.length > 20) {
@@ -140,17 +141,22 @@ export const UserProfileModal: React.FC = () => {
     }
 
     // Prepare update payload
+    // El contexto solo envía al servidor lo que realmente cambió.
+    // Foto vacía = quitar foto (el servidor guarda '' y luego responde avatar null).
+    const telefonoOriginal = (currentUser.telefono || '').replace(/\D/g, '').slice(-10);
     const payload: { fotoUrl?: string; telefono?: string; passwordActual?: string; password?: string } = {
-      fotoUrl: photoUrl || currentUser.avatarUrl,
-      telefono: telefono.length === 10 ? `+57 ${telefono}` : currentUser.telefono,
+      fotoUrl: photoUrl,
+      telefono: telefono === telefonoOriginal ? currentUser.telefono || '' : (telefono ? `+57 ${telefono}` : ''),
     };
 
-    if (password.length >= 8) {
+    if (password.length > 0) {
       payload.password = password;
       payload.passwordActual = passwordActual;
     }
 
+    setSaving(true);
     const res = await actualizarPerfilUsuario(payload);
+    setSaving(false);
     if (!res.success) {
       setPasswordError(res.message);
       return;
@@ -306,26 +312,16 @@ export const UserProfileModal: React.FC = () => {
                   </div>
                 )}
 
-                {/* Avatar presets gallery */}
-                <div>
-                  <span className={`text-[10px] font-semibold block mb-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    O elige un avatar profesional oficial:
-                  </span>
-                  <div className="flex items-center justify-center sm:justify-start gap-2">
-                    {PRESET_AVATARS.map((url, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setPhotoUrl(url)}
-                        className={`w-8 h-8 rounded-lg overflow-hidden border-2 transition-transform hover:scale-110 cursor-pointer ${
-                          photoUrl === url ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-transparent opacity-75 hover:opacity-100'
-                        }`}
-                      >
-                        <img src={url} alt={`Avatar ${idx}`} className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {photoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setPhotoUrl('')}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-rose-500 hover:text-rose-400 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Quitar foto
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -486,7 +482,7 @@ export const UserProfileModal: React.FC = () => {
 
             {password.length > 0 && (
               <p className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Requisitos: Mínimo 8 caracteres, máximo 20 caracteres con números o caracteres especiales.
+                Requisitos: {PASSWORD_POLICY_HINT} Máximo 20 caracteres.
               </p>
             )}
           </div>
@@ -534,7 +530,7 @@ export const UserProfileModal: React.FC = () => {
                   Cédula / Documento de Identidad
                 </span>
                 <span className="font-bold font-mono block mt-0.5">
-                  {currentUser.documentId || 'CC 1.037.000.000'}
+                  {currentUser.documentId || 'No registrado'}
                 </span>
               </div>
 
@@ -544,7 +540,7 @@ export const UserProfileModal: React.FC = () => {
                   Cargo Asignado & Sede
                 </span>
                 <span className="font-bold block mt-0.5">
-                  {currentUser.rol.rol} • {currentUser.city || 'Medellín'}
+                  {currentUser.rol.rol}{currentUser.city ? ` • ${currentUser.city}` : ''}
                 </span>
               </div>
             </div>
@@ -570,10 +566,11 @@ export const UserProfileModal: React.FC = () => {
 
             <button
               type="submit"
-              className="px-6 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
+              disabled={saving}
+              className="px-6 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Guardar Cambios de Perfil</span>
+              <span>{saving ? 'Guardando…' : 'Guardar Cambios de Perfil'}</span>
             </button>
           </div>
         </form>

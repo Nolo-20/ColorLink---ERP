@@ -24,14 +24,17 @@ export const RoleDashboard: React.FC = () => {
   const entregados = proyectos.filter(p => p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega).length;
   const enCalidad = proyectos.filter(p => p.estadoPipeline === 'en_peritaje').length;
 
+  // Los proyectos cancelados no cuentan como portafolio activo
+  const proyectosActivos = proyectos.filter(p => p.estadoPipeline !== 'cancelado');
+
   // Total cuñetes sum
-  const totalCunetes = proyectos.reduce((acc, p) => {
+  const totalCunetes = proyectosActivos.reduce((acc, p) => {
     const q = p.cotizaciones && p.cotizaciones[0];
     return acc + (q?.cunetes5g || 0);
   }, 0);
 
   // Total revenue sum in COP
-  const totalRevenue = proyectos.reduce((acc, p) => {
+  const totalRevenue = proyectosActivos.reduce((acc, p) => {
     const q = p.cotizaciones && p.cotizaciones[0];
     return acc + (q?.total || 0);
   }, 0);
@@ -39,10 +42,24 @@ export const RoleDashboard: React.FC = () => {
   // Quality approval rate
   const totalEvaluated = proyectos.filter(p => p.diagnostico?.fechaVeredicto).length;
   const totalApproved = proyectos.filter(p => p.diagnostico?.aprobadoCalidad).length;
-  const qualityRate = totalEvaluated > 0 ? Math.round((totalApproved / totalEvaluated) * 100) : 92;
+  const qualityRate: number | null = totalEvaluated > 0 ? Math.round((totalApproved / totalEvaluated) * 100) : null;
 
   // Total inventory units in bodegas
-  const totalStockUnits = inventarios.reduce((acc, inv) => acc + inv.cantidadDisponible, 0);
+  const totalStockUnits = inventarios.reduce((acc, inv) => acc + (inv.cantidadDisponible || 0), 0);
+  const bodegas = Array.from(new Set(inventarios.map(i => i.nombreBodega).filter(Boolean)));
+
+  // Cobertura por municipio calculada con los proyectos reales (ciudad de la empresa cliente)
+  const porCiudad = Array.from(
+    proyectosActivos.reduce((map, p) => {
+      const ciudad = p.empresa?.ciudad?.ciudad || 'Sin ciudad';
+      const cur = map.get(ciudad) || { ciudad, proyectos: 0, cunetes: 0, despachados: 0 };
+      cur.proyectos += 1;
+      cur.cunetes += p.cotizaciones?.[0]?.cunetes5g || 0;
+      if (p.estadoPipeline === 'despachado') cur.despachados += 1;
+      map.set(ciudad, cur);
+      return map;
+    }, new Map<string, { ciudad: string; proyectos: number; cunetes: number; despachados: number }>()).values()
+  ).sort((a, b) => b.proyectos - a.proyectos);
 
   return (
     <div className="space-y-6">
@@ -66,7 +83,7 @@ export const RoleDashboard: React.FC = () => {
         <div className={`flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg self-start md:self-auto border ${
           isLight ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-emerald-950/60 text-emerald-400 border-emerald-500/30'
         }`}>
-          <span>● Conectado a Prisma / DB Local</span>
+          <span>● Datos del servidor ColorLink</span>
         </div>
       </div>
 
@@ -113,9 +130,11 @@ export const RoleDashboard: React.FC = () => {
               <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono">{qualityRate}%</div>
+          <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono">{qualityRate != null ? `${qualityRate}%` : '—'}</div>
           <span className={`text-[11px] mt-1 block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-            Sustratos aptos bajo norma NTC
+            {qualityRate != null
+              ? `${totalApproved} de ${totalEvaluated} dictámenes aprobados`
+              : 'Aún no hay dictámenes de calidad'}
           </span>
         </div>
 
@@ -130,7 +149,9 @@ export const RoleDashboard: React.FC = () => {
           </div>
           <div className={`text-3xl font-black font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{totalStockUnits}</div>
           <span className="text-[11px] text-purple-600 dark:text-purple-300 mt-1 block font-medium">
-            Unidades en Guayabal, Itagüí y Bello
+            {bodegas.length > 0
+              ? `Unidades en ${bodegas.length} ${bodegas.length === 1 ? 'bodega' : 'bodegas'}`
+              : 'Sin existencias registradas'}
           </span>
         </div>
       </div>
@@ -164,7 +185,7 @@ export const RoleDashboard: React.FC = () => {
                   <div className={`w-full h-2 rounded-full overflow-hidden ${isLight ? 'bg-slate-100' : 'bg-slate-900'}`}>
                     <div 
                       className={`h-full ${item.color} rounded-full transition-all duration-500`}
-                      style={{ width: `${Math.max(pct, 5)}%` }}
+                      style={{ width: `${pct}%` }}
                     />
                   </div>
                 </div>
@@ -182,27 +203,29 @@ export const RoleDashboard: React.FC = () => {
             Cobertura & Operación por Municipio
           </h3>
 
+          {porCiudad.length === 0 ? (
+            <p className={`pt-2 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              Aún no hay proyectos activos para mostrar cobertura por municipio.
+            </p>
+          ) : (
           <div className="grid grid-cols-2 gap-3 pt-2">
-            {[
-              { ciudad: 'Medellín', desc: 'Centro Logístico Guayabal', cuñetes: 37, tiempo: '2.5 hrs' },
-              { ciudad: 'Itagüí', desc: 'Zona Sur Industrial', cuñetes: 22, tiempo: '2.0 hrs' },
-              { ciudad: 'Bello', desc: 'Sede Norte Niquía', cuñetes: 16, tiempo: '3.5 hrs' },
-              { ciudad: 'Envigado', desc: 'Obras Residenciales Loma', cuñetes: 19, tiempo: '2.8 hrs' },
-            ].map((loc, i) => (
-              <div key={i} className={`p-3.5 border rounded-xl space-y-1 ${
+            {porCiudad.map((loc) => (
+              <div key={loc.ciudad} className={`p-3.5 border rounded-xl space-y-1 ${
                 isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
               }`}>
                 <span className={`font-bold text-sm block ${isLight ? 'text-slate-900' : 'text-white'}`}>{loc.ciudad}</span>
-                <span className={`text-[10px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{loc.desc}</span>
+                <span className={`text-[10px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {loc.proyectos} {loc.proyectos === 1 ? 'proyecto' : 'proyectos'} • {loc.despachados} despachados
+                </span>
                 <div className={`flex justify-between items-center text-xs pt-2 border-t ${
                   isLight ? 'border-slate-200 text-slate-600' : 'border-slate-800 text-slate-300'
                 }`}>
-                  <span>Demanda: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{loc.cuñetes} 5G</strong></span>
-                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{loc.tiempo}</span>
+                  <span>Demanda cotizada: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{loc.cunetes} 5G</strong></span>
                 </div>
               </div>
             ))}
           </div>
+          )}
         </div>
       </div>
 
@@ -216,10 +239,13 @@ export const RoleDashboard: React.FC = () => {
             Usuarios & Roles del Sistema (Modelo Prisma)
           </h3>
           <span className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-            {usuarios.length} cuentas registradas
+            {usuarios.length} {usuarios.length === 1 ? 'cuenta visible' : 'cuentas visibles'}
           </span>
         </div>
 
+        {usuarios.length === 0 && (
+          <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>No hay usuarios para mostrar con tu perfil.</p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {usuarios.map(u => (
             <div key={u.usuarioId} className={`p-3.5 border rounded-xl flex items-center gap-3 ${
@@ -234,14 +260,14 @@ export const RoleDashboard: React.FC = () => {
                   <div className={`w-full h-full flex items-center justify-center font-bold text-xs ${
                     isLight ? 'text-slate-600' : 'text-slate-400'
                   }`}>
-                    {u.nombre[0]}
+                    {(u.nombre || u.email || '?').charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>
               <div className="min-w-0 flex-1 text-xs">
                 <div className={`font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>{u.nombre} {u.apellido}</div>
                 <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{u.rol.rol}</div>
-                <div className={`text-[10px] font-mono truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{u.email}</div>
+                <div className={`text-[10px] font-mono truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{u.email || '—'}</div>
               </div>
             </div>
           ))}

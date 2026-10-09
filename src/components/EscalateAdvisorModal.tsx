@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   UserPlus, 
@@ -21,19 +21,43 @@ export const EscalateAdvisorModal: React.FC = () => {
     currentUser 
   } = useApp();
 
-  const advisors = usuarios.filter(u => u.rol.rol === 'Asesor Comercial' || u.rol.rol === 'Administrador');
-  const [selectedAdvisorId, setSelectedAdvisorId] = useState(advisors[1]?.usuarioId || advisors[0]?.usuarioId);
-  const [motivo, setMotivo] = useState('Escalamiento a Asesor Senior por complejidad técnica del sustrato y metraje superior.');
+  // El backend solo acepta como destino usuarios activos con rol "asesor"
+  const currentAdvisor = projectToEscalate?.asesorAsignado || null;
+  const advisors = usuarios.filter(u => u.rol.rol === 'Asesor Comercial' && u.activo !== false);
+  const candidates = advisors.filter(a => a.usuarioId !== currentAdvisor?.usuarioId);
+
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // Cada vez que se abre (o llegan los usuarios del servidor) se elige un asesor válido
+  useEffect(() => {
+    if (!escalateModalOpen) return;
+    setError('');
+    setSelectedAdvisorId(prev => (candidates.some(c => c.usuarioId === prev) ? prev : candidates[0]?.usuarioId || ''));
+  }, [escalateModalOpen, projectToEscalate?.proyectoId, usuarios]);
+
+  useEffect(() => {
+    if (escalateModalOpen) { setMotivo(''); setSaving(false); }
+  }, [escalateModalOpen, projectToEscalate?.proyectoId]);
 
   if (!escalateModalOpen || !projectToEscalate) return null;
 
-  const currentAdvisor = projectToEscalate.asesorAsignado || advisors[0];
   const targetAdvisor = usuarios.find(u => u.usuarioId === selectedAdvisorId);
+  const proyectoCerrado = ['despachado', 'cancelado'].includes(projectToEscalate.estadoPipeline);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAdvisorId) return;
-    escalarAsesorProyecto(projectToEscalate.proyectoId, selectedAdvisorId, motivo);
+    if (saving) return;
+    if (proyectoCerrado) { setError('Este proyecto ya está cerrado y no se puede reasignar.'); return; }
+    if (!selectedAdvisorId) { setError('No hay otro asesor comercial activo para recibir el proyecto.'); return; }
+    if (motivo.trim().length < 5) { setError('Escribe el motivo del escalamiento.'); return; }
+    setError('');
+    setSaving(true);
+    const ok = await escalarAsesorProyecto(projectToEscalate.proyectoId, selectedAdvisorId, motivo.trim());
+    setSaving(false);
+    if (!ok) setError('El servidor no aceptó la reasignación. Revisa el aviso e inténtalo de nuevo.');
   };
 
   return (
@@ -97,10 +121,10 @@ export const EscalateAdvisorModal: React.FC = () => {
                 </div>
                 <div>
                   <span className="font-bold text-white block text-xs">
-                    {currentAdvisor?.nombre} {currentAdvisor?.apellido}
+                    {currentAdvisor ? `${currentAdvisor.nombre} ${currentAdvisor.apellido || ''}` : 'Sin asesor asignado'}
                   </span>
                   <span className="text-[10px] text-emerald-400 font-medium">
-                    {currentAdvisor?.rol.rol}
+                    {currentAdvisor?.rol?.rol}
                   </span>
                 </div>
               </div>
@@ -118,7 +142,7 @@ export const EscalateAdvisorModal: React.FC = () => {
                 </div>
                 <div>
                   <span className="font-bold text-white block text-xs">
-                    {targetAdvisor?.nombre} {targetAdvisor?.apellido}
+                    {targetAdvisor ? `${targetAdvisor.nombre} ${targetAdvisor.apellido || ''}` : '—'}
                   </span>
                   <span className="text-[10px] text-emerald-300 font-medium">
                     {targetAdvisor?.rol.rol}
@@ -133,17 +157,23 @@ export const EscalateAdvisorModal: React.FC = () => {
             <label className="block text-slate-300 font-bold mb-1.5">
               Seleccionar Nuevo Asesor Comercial
             </label>
-            <select
-              value={selectedAdvisorId}
-              onChange={(e) => setSelectedAdvisorId(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
-            >
-              {advisors.map(adv => (
-                <option key={adv.usuarioId} value={adv.usuarioId} disabled={adv.usuarioId === currentAdvisor?.usuarioId}>
-                  {adv.nombre} {adv.apellido} ({adv.company || adv.rol.rol}) {adv.usuarioId === currentAdvisor?.usuarioId ? '— (Actual)' : ''}
-                </option>
-              ))}
-            </select>
+            {candidates.length === 0 ? (
+              <p className="text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3.5 py-2.5">
+                No hay otro asesor comercial activo. Crea uno en Gestión de Empleados para poder escalar.
+              </p>
+            ) : (
+              <select
+                value={selectedAdvisorId}
+                onChange={(e) => setSelectedAdvisorId(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+              >
+                {candidates.map(adv => (
+                  <option key={adv.usuarioId} value={adv.usuarioId}>
+                    {adv.nombre} {adv.apellido} ({adv.rol.rol})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Reason for escalation */}
@@ -156,6 +186,8 @@ export const EscalateAdvisorModal: React.FC = () => {
               required
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
+              minLength={5}
+              maxLength={500}
               placeholder="Detalla por qué se transfiere el proyecto (ej. sobrecarga, solicitud de asesor senior, especialidad en epóxicos)..."
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-500"
             />
@@ -183,6 +215,12 @@ export const EscalateAdvisorModal: React.FC = () => {
             </div>
           )}
 
+          {error && (
+            <p role="alert" className="text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-3.5 py-2.5 font-semibold">
+              {error}
+            </p>
+          )}
+
           {/* Actions */}
           <div className="pt-2 flex gap-3">
             <button
@@ -194,10 +232,11 @@ export const EscalateAdvisorModal: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
+              disabled={saving || candidates.length === 0 || proyectoCerrado}
+              className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4" />
-              <span>Confirmar Escalamiento</span>
+              <span>{saving ? 'Escalando…' : 'Confirmar Escalamiento'}</span>
             </button>
           </div>
         </form>

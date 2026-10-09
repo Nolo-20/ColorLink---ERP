@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp, canRole } from '../context/AppContext';
 import { Proyecto, DiagnosticoIA } from '../types/database';
+import { ESTADO_PROYECTO_LABEL } from '../estados';
 import { 
   ShieldCheck, 
   AlertTriangle, 
@@ -39,6 +40,8 @@ export const QualityReviewModule: React.FC = () => {
   const [imagenCargando, setImagenCargando] = useState(false);
   const [motivoImagen, setMotivoImagen] = useState('');
   const [pidiendoImagen, setPidiendoImagen] = useState(false);
+  const [pidiendoImagenBusy, setPidiendoImagenBusy] = useState(false);
+  const [guardandoVeredicto, setGuardandoVeredicto] = useState(false);
 
   // Cuando llegan datos nuevos del servidor, refresca el proyecto abierto
   useEffect(() => {
@@ -63,49 +66,63 @@ export const QualityReviewModule: React.FC = () => {
       showToast('Explica brevemente por qué la imagen no sirve (mínimo 5 caracteres).');
       return;
     }
-    const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
-    if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+    if (pidiendoImagenBusy) return;
+    setPidiendoImagenBusy(true);
+    try {
+      const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
+      if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+    } finally {
+      setPidiendoImagenBusy(false);
+    }
   };
 
   // Perito evaluation form state
   const existingDiag = activeProject?.diagnostico;
-  const [humedad, setHumedad] = useState<number>(existingDiag?.humedadRelativa || 8.5);
+  // null = el perito todavía no ha registrado la medición (no se inventa un valor)
+  const [humedad, setHumedad] = useState<number | null>(existingDiag?.humedadRelativa ?? null);
   const [fisuras, setFisuras] = useState<NonNullable<DiagnosticoIA['severidadFisuras']>>(
     existingDiag?.severidadFisuras || 'Sin fisuras'
   );
-  const [patologia, setPatologia] = useState<string>(
-    existingDiag?.patologiaDetectada || 'Superficie estándar apta con rugosidad media'
-  );
-  const [sistema, setSistema] = useState<string>(
-    existingDiag?.sistemaRecomendado || '1 Mano Sellador Fijador Antialcalino + 2 Manos Pintura Elastómero'
-  );
-  const [notasPerito, setNotasPerito] = useState<string>(
-    existingDiag?.notasPerito || ''
-  );
+  const [patologia, setPatologia] = useState<string>(existingDiag?.patologiaDetectada || '');
+  const [sistema, setSistema] = useState<string>(existingDiag?.sistemaRecomendado || '');
+  const [notasPerito, setNotasPerito] = useState<string>(existingDiag?.notasPerito || '');
+
+  // Cada vez que cambia el proyecto abierto, el formulario muestra SOLO los datos de ese proyecto
+  useEffect(() => {
+    const d = activeProject?.diagnostico;
+    setHumedad(d?.humedadRelativa ?? null);
+    setFisuras(d?.severidadFisuras || 'Sin fisuras');
+    setPatologia(d?.patologiaDetectada || '');
+    setSistema(d?.sistemaRecomendado || '');
+    setNotasPerito(d?.notasPerito || '');
+  }, [activeProject?.proyectoId]);
 
   const handleSelectProject = (p: Proyecto) => {
     setActiveProject(p);
     setSelectedProyecto(p);
-    if (p.diagnostico) {
-      setHumedad(p.diagnostico.humedadRelativa || 8.5);
-      setFisuras(p.diagnostico.severidadFisuras || 'Sin fisuras');
-      setPatologia(p.diagnostico.patologiaDetectada || '');
-      setSistema(p.diagnostico.sistemaRecomendado || '');
-      setNotasPerito(p.diagnostico.notasPerito || '');
-    }
   };
 
-  const handleSaveVerdict = async (aprobado: boolean) => {
-    if (!activeProject) return;
+  const proyectoCerrado = !!activeProject && ['despachado', 'cancelado'].includes(activeProject.estadoPipeline);
 
-    await guardarDiagnosticoCalidad(activeProject.proyectoId, {
-      humedadRelativa: Number(humedad),
-      severidadFisuras: fisuras,
-      patologiaDetectada: patologia,
-      sistemaRecomendado: sistema,
-      notasPerito,
-      aprobadoCalidad: aprobado,
-    });
+  const handleSaveVerdict = async (aprobado: boolean) => {
+    if (!activeProject || guardandoVeredicto) return;
+    if (humedad == null) {
+      showToast('Registra la medición de humedad del muro antes de emitir el dictamen.', 'error');
+      return;
+    }
+    setGuardandoVeredicto(true);
+    try {
+      await guardarDiagnosticoCalidad(activeProject.proyectoId, {
+        humedadRelativa: Number(humedad),
+        severidadFisuras: fisuras,
+        patologiaDetectada: patologia.trim() || undefined,
+        sistemaRecomendado: sistema.trim() || undefined,
+        notasPerito,
+        aprobadoCalidad: aprobado,
+      });
+    } finally {
+      setGuardandoVeredicto(false);
+    }
   };
 
   const getHumidityStatus = (val: number) => {
@@ -114,7 +131,9 @@ export const QualityReviewModule: React.FC = () => {
     return { label: 'Crítico / No Apto (>14%)', color: 'text-rose-400 bg-rose-950/60 border-rose-500/40' };
   };
 
-  const humStatus = getHumidityStatus(humedad);
+  const humStatus = humedad != null
+    ? getHumidityStatus(humedad)
+    : { label: 'Sin medición', color: 'text-slate-400 bg-slate-900/60 border-slate-600/40' };
 
   return (
     <div className="space-y-6">
@@ -189,7 +208,7 @@ export const QualityReviewModule: React.FC = () => {
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
                         isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 text-slate-300 border-slate-700'
                       }`}>
-                        {p.estadoPipeline.replace(/_/g, ' ')}
+                        {ESTADO_PROYECTO_LABEL[p.estadoPipeline]}
                       </span>
                     )}
 
@@ -217,10 +236,10 @@ export const QualityReviewModule: React.FC = () => {
                     isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/80 text-slate-400'
                   }`}>
                     <span className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      {p.ambiente} ({p.area} m²)
+                      {p.ambiente || '—'} ({p.area != null ? `${p.area} m²` : '— m²'})
                     </span>
                     <span className="font-mono text-emerald-500 text-[11px]">
-                      {diag?.humedadRelativa ? `${diag.humedadRelativa}% Hum.` : 'Sin Medición'}
+                      {diag?.humedadRelativa != null ? `${diag.humedadRelativa}% Hum.` : 'Sin Medición'}
                     </span>
                   </div>
                 </div>
@@ -246,7 +265,7 @@ export const QualityReviewModule: React.FC = () => {
                     {activeProject.nombreProyecto}
                   </h3>
                   <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Cliente: <span className={`font-medium ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{activeProject.empresa?.razonSocial}</span> • Dirección: <span className={isLight ? 'text-slate-700' : 'text-slate-200'}>{activeProject.empresa?.direccionDespacho}</span>
+                    Cliente: <span className={`font-medium ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{activeProject.empresa?.razonSocial || '—'}</span> • Dirección: <span className={isLight ? 'text-slate-700' : 'text-slate-200'}>{activeProject.empresa?.direccionDespacho || '—'}</span>
                   </p>
                 </div>
 
@@ -303,8 +322,8 @@ export const QualityReviewModule: React.FC = () => {
                         }`}
                       />
                       <div className="flex gap-2">
-                        <button type="button" onClick={handlePedirCambioImagen} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer">
-                          Enviar solicitud al cliente
+                        <button type="button" onClick={handlePedirCambioImagen} disabled={pidiendoImagenBusy} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+                          {pidiendoImagenBusy ? 'Enviando…' : 'Enviar solicitud al cliente'}
                         </button>
                         <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); }} className="px-3 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 cursor-pointer">
                           Cancelar
@@ -340,14 +359,14 @@ export const QualityReviewModule: React.FC = () => {
                       min={2}
                       max={24}
                       step={0.1}
-                      value={humedad}
+                      value={humedad ?? 2}
                       onChange={(e) => setHumedad(Number(e.target.value))}
                       className="flex-1 accent-emerald-500 h-2 bg-slate-300 dark:bg-slate-800 rounded-lg cursor-pointer"
                     />
                     <div className={`w-20 border rounded-lg py-1 px-2 text-center font-mono font-bold text-lg ${
                       isLight ? 'bg-white border-slate-300 text-emerald-600' : 'bg-slate-950 border-slate-700 text-emerald-400'
                     }`}>
-                      {humedad}%
+                      {humedad != null ? `${humedad}%` : '—'}
                     </div>
                   </div>
                   <p className={`text-[11px] mt-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -445,24 +464,28 @@ export const QualityReviewModule: React.FC = () => {
                 </div>
 
                 {/* Verdict Buttons */}
-                {canRole.emitirVeredicto(currentUser?.rol.rol) ? (
+                {canRole.emitirVeredicto(currentUser?.rol.rol) && proyectoCerrado ? (
+                  <p className="pt-2 text-xs text-slate-400">Este proyecto ya está cerrado ({ESTADO_PROYECTO_LABEL[activeProject.estadoPipeline]}); no admite un nuevo dictamen.</p>
+                ) : canRole.emitirVeredicto(currentUser?.rol.rol) ? (
                 <div className="pt-2 flex flex-col sm:flex-row gap-3">
                   <button
                     type="button"
                     onClick={() => handleSaveVerdict(false)}
-                    className="flex-1 py-3 px-4 bg-rose-950/40 hover:bg-rose-950 border border-rose-600/50 text-rose-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={guardandoVeredicto}
+                    className="disabled:opacity-60 disabled:cursor-not-allowed flex-1 py-3 px-4 bg-rose-950/40 hover:bg-rose-950 border border-rose-600/50 text-rose-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <AlertTriangle className="w-4 h-4 text-rose-400" />
-                    <span>Rechazar Sustrato / Solicitar Corrección</span>
+                    <span>{guardandoVeredicto ? 'Guardando…' : 'Rechazar Sustrato / Solicitar Corrección'}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleSaveVerdict(true)}
-                    className="flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={guardandoVeredicto}
+                    className="disabled:opacity-60 disabled:cursor-not-allowed flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                    <span>Aprobar Sustrato y Autorizar Despacho</span>
+                    <span>{guardandoVeredicto ? 'Guardando…' : 'Aprobar Sustrato y Autorizar Despacho'}</span>
                   </button>
                 </div>
                 ) : (
@@ -471,7 +494,13 @@ export const QualityReviewModule: React.FC = () => {
               </div>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className={`lg:col-span-8 border rounded-2xl p-8 text-center text-sm ${
+            isLight ? 'bg-white border-slate-200 text-slate-500' : 'bg-[#091526] border-slate-800 text-slate-400'
+          }`}>
+            No hay proyectos en la cola de calidad.
+          </div>
+        )}
       </div>
     </div>
   );

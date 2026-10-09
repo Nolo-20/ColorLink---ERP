@@ -170,8 +170,12 @@ interface AppContextType {
   canjearCodigoRetiro: (codigo: string) => Promise<ResultadoCanje>;
 
   toastMessage: string | null;
-  showToast: (msg: string) => void;
+  toastKind: ToastKind;
+  /** kind 'error' pinta el aviso en rojo; por defecto se infiere del texto ("No se pudo…" = error). */
+  showToast: (msg: string, kind?: ToastKind) => void;
 }
+
+export type ToastKind = 'ok' | 'error';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -191,7 +195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [selectedPedido, setSelectedPedido] = useState<PedidoTienda | null>(null);
   const [selectedProyecto, setSelectedProyecto] = useState<Proyecto | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('inicio');
+  const [activeTab, setActiveTabRaw] = useState<TabType>('inicio');
 
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('colorlink_theme');
@@ -209,12 +213,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastKind, setToastKind] = useState<ToastKind>('ok');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, kind?: ToastKind) => {
+    const k: ToastKind = kind || (/^(no se pudo|no se encontr|error|tu sesión terminó|no tienes)/i.test(msg.trim()) ? 'error' : 'ok');
+    setToastKind(k);
     setToastMessage(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToastMessage(null), 4500);
+    toastTimer.current = setTimeout(() => setToastMessage(null), k === 'error' ? 7000 : 4500);
   }, []);
 
   // ------------------------------------------------------------ Tema
@@ -355,6 +362,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return (ROLE_PERMISSIONS[userRole] || []).includes(tab);
   };
 
+  /** Solo deja abrir módulos que el rol tiene permitidos (búsqueda, accesos directos, etc.). */
+  const setActiveTab = (tab: TabType) => {
+    if (tab === 'inicio' || hasModuleAccess(tab)) {
+      setActiveTabRaw(tab);
+    } else {
+      showToast('No tienes acceso a ese módulo con tu rol.', 'error');
+    }
+  };
+
   // ------------------------------------------------------------ Sesión
   const loginWithEmailPassword = async (email: string, password: string) => {
     try {
@@ -364,7 +380,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, message: 'Esta cuenta es de cliente. El ERP es solo para colaboradores de ColorLink.' };
       }
       setCurrentUser(mapSessionUser(r.user));
-      setActiveTab('inicio');
+      setActiveTabRaw('inicio');
       showToast(`¡Bienvenido, ${r.user.firstName || r.user.name}!`);
       return { success: true, message: 'Inicio de sesión exitoso' };
     } catch (err) {
@@ -381,7 +397,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProyectos([]);
     setPedidos([]);
     setUsuarios([]);
-    setActiveTab('inicio');
+    setActiveTabRaw('inicio');
     showToast('Sesión cerrada correctamente');
   };
 
@@ -450,6 +466,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         humedadRelativa: data.humedadRelativa,
         severidadFisuras: data.severidadFisuras,
         notasPerito: data.notasPerito,
+        patologiaDetectada: data.patologiaDetectada,
         aprobadoCalidad: data.aprobadoCalidad,
         sistemaRecomendado: data.sistemaRecomendado,
       });
@@ -586,19 +603,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const actualizarPerfilUsuario: AppContextType['actualizarPerfilUsuario'] = async (datos) => {
     if (!currentUser) return { success: false, message: 'No hay usuario autenticado.' };
+    let passwordCambiada = false;
     try {
       if (datos.password) {
         if (!datos.passwordActual) return { success: false, message: 'Escribe tu contraseña actual para cambiarla.' };
         await api.changePassword(datos.passwordActual, datos.password);
+        passwordCambiada = true;
       }
-      if (datos.fotoUrl !== undefined || datos.telefono !== undefined) {
-        const r = await api.updateProfile({ phone: datos.telefono, avatarUrl: datos.fotoUrl });
+      // Solo se envía lo que realmente cambió
+      const cambios: { phone?: string; avatarUrl?: string } = {};
+      if (datos.telefono !== undefined && datos.telefono !== (currentUser.telefono || '')) cambios.phone = datos.telefono;
+      if (datos.fotoUrl !== undefined && datos.fotoUrl !== (currentUser.avatarUrl || '')) cambios.avatarUrl = datos.fotoUrl;
+      if (Object.keys(cambios).length) {
+        const r = await api.updateProfile(cambios);
         setCurrentUser(mapSessionUser(r.user));
       }
       showToast('Tu perfil fue actualizado.');
       return { success: true, message: 'Perfil actualizado exitosamente.' };
     } catch (err) {
-      return { success: false, message: err instanceof ApiError ? err.message : 'No se pudo actualizar el perfil.' };
+      if (err instanceof ApiError && err.status === 401) return { success: false, message: handleApiError(err, '') };
+      const motivo = err instanceof ApiError ? err.message : 'No se pudo actualizar el perfil.';
+      return {
+        success: false,
+        message: passwordCambiada ? `Tu contraseña sí se cambió, pero la foto o el teléfono no: ${motivo}` : motivo,
+      };
     }
   };
 
@@ -625,7 +653,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!clean) return { success: false, message: 'Escribe o escanea el código de retiro.' };
     try {
       const r = await api.validatePickup(clean);
-      const lista = roleApi ? await loadOrders(roleApi) : [];
+      // El canje ya quedó hecho; si recargar la lista falla no se debe reportar como error
+      const lista = roleApi ? await loadOrders(roleApi).catch(() => pedidos) : [];
       const pedido = lista.find(p => p.ordenId === r.order?.ordenId);
       showToast(`¡Código canjeado! Pedido ${pedido?.pedidoId || ''} entregado.`.trim());
       return { success: true, pedido, message: '¡Canje exitoso! Entrega confirmada.' };
@@ -667,7 +696,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         actualizarStockInventario, agregarEntradaInventario,
         crearUsuario, actualizarEmpleado, actualizarPerfilUsuario,
         cambiarEstadoPedido, canjearCodigoRetiro,
-        toastMessage, showToast,
+        toastMessage, toastKind, showToast,
       }}
     >
       {children}

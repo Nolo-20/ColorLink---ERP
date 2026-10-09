@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { UserRole } from '../types/database';
+import { UserRole, Usuario } from '../types/database';
+import { STAFF_ROLE_LABELS } from '../mappers';
+import { passwordPolicyError, PASSWORD_POLICY_HINT } from '../passwordPolicy';
 import { 
   UserPlus, 
   ShieldCheck, 
@@ -16,13 +18,16 @@ import {
   Search,
   Filter,
   UserCheck,
-  AlertCircle
+  AlertCircle,
+  Pencil,
+  X
 } from 'lucide-react';
 
 export const EmployeeManagementPanel: React.FC = () => {
   const { 
     usuarios, 
     crearUsuario, 
+    actualizarEmpleado,
     theme,
     currentUser
   } = useApp();
@@ -47,6 +52,9 @@ export const EmployeeManagementPanel: React.FC = () => {
   const [searchFilter, setSearchFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('todos');
   const [activeTabMode, setActiveTabMode] = useState<'roster' | 'create'>('roster');
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingUser = editingId ? usuarios.find(u => u.usuarioId === editingId) || null : null;
 
   const filteredUsers = usuarios.filter((u) => {
     const matchesSearch = 
@@ -151,17 +159,19 @@ export const EmployeeManagementPanel: React.FC = () => {
       errors.documentId = 'La cédula debe contener entre 7 y 10 dígitos numéricos.';
     }
 
-    // 6. Contraseña: mínimo 8 caracteres
-    if (!password || password.length < 8) {
-      errors.password = 'La contraseña inicial debe tener mínimo 8 caracteres (máx. 20).';
+    // 6. Contraseña: misma política que exige el servidor
+    const policyError = passwordPolicyError(password);
+    if (policyError) {
+      errors.password = policyError;
     }
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setSubmitErrorNotice('');
 
     if (!validateForm()) {
@@ -169,7 +179,8 @@ export const EmployeeManagementPanel: React.FC = () => {
       return;
     }
 
-    crearUsuario({
+    setSaving(true);
+    const creado = await crearUsuario({
       nombre: nombre.trim(),
       apellido: apellido.trim(),
       email: email.trim(),
@@ -180,6 +191,13 @@ export const EmployeeManagementPanel: React.FC = () => {
       company,
       city,
     });
+    setSaving(false);
+
+    // Si el servidor lo rechazó, se conservan los datos para corregirlos (el motivo sale en el aviso)
+    if (!creado) {
+      setSubmitErrorNotice('El servidor no pudo crear el colaborador. Revisa el aviso y corrige los datos.');
+      return;
+    }
 
     // Reset form & view roster
     setNombre('');
@@ -187,6 +205,7 @@ export const EmployeeManagementPanel: React.FC = () => {
     setEmail('');
     setTelefono('');
     setDocumentId('');
+    setPassword('');
     setFormErrors({});
     setSubmitErrorNotice('');
     setActiveTabMode('roster');
@@ -533,7 +552,6 @@ export const EmployeeManagementPanel: React.FC = () => {
                     <option value="Perito de Calidad">Perito de Calidad (Dictamen NTC y Pruebas Higrométricas)</option>
                     <option value="Jefe de Despachos">Jefe de Despachos (Inventarios, Tintometría y Rutas)</option>
                     <option value="Administrador">Administrador (Control Total y Gobernanza)</option>
-                    <option value="Cliente Contratista">Cliente Contratista (Portal de Pedidos y Trazabilidad)</option>
                   </select>
                 </div>
                 <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -602,7 +620,7 @@ export const EmployeeManagementPanel: React.FC = () => {
                   </p>
                 ) : (
                   <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Mínimo 8 caracteres, máximo 20 (el colaborador podrá modificarla en su perfil)
+                    {PASSWORD_POLICY_HINT} Máximo 20 (el colaborador podrá modificarla en su perfil).
                   </p>
                 )}
               </div>
@@ -621,10 +639,11 @@ export const EmployeeManagementPanel: React.FC = () => {
 
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                disabled={saving}
+                className="px-6 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Crear y Habilitar Colaborador</span>
+                <span>{saving ? 'Creando…' : 'Crear y Habilitar Colaborador'}</span>
               </button>
             </div>
           </form>
@@ -663,7 +682,6 @@ export const EmployeeManagementPanel: React.FC = () => {
                 <option value="Asesor Comercial">Asesor Comercial</option>
                 <option value="Perito de Calidad">Perito de Calidad</option>
                 <option value="Jefe de Despachos">Jefe de Despachos</option>
-                <option value="Cliente Contratista">Cliente Contratista</option>
               </select>
             </div>
           </div>
@@ -748,21 +766,226 @@ export const EmployeeManagementPanel: React.FC = () => {
                   <div className={`pt-3 border-t flex items-center justify-between text-[11px] ${
                     isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'
                   }`}>
-                    <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      Activo en ERP
-                    </span>
+                    {u.activo === false ? (
+                      <span className="flex items-center gap-1.5 text-rose-500 font-semibold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                        Desactivado
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Activo en ERP
+                      </span>
+                    )}
 
-                    <span className="font-mono text-[10px]">
-                      {u.company || 'ColorLink S.A.S.'}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(u.usuarioId)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
+                        isLight ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Editar
+                    </button>
                   </div>
                 </div>
               );
             })}
+            {filteredUsers.length === 0 && (
+              <p className={`text-xs col-span-full text-center py-6 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                No hay colaboradores que coincidan con la búsqueda.
+              </p>
+            )}
           </div>
         </div>
       )}
+
+      {editingUser && (
+        <EmployeeEditPanel
+          key={editingUser.usuarioId}
+          empleado={editingUser}
+          isSelf={currentUser?.usuarioId === editingUser.usuarioId}
+          isLight={isLight}
+          onClose={() => setEditingId(null)}
+          onSave={(datos) => actualizarEmpleado(editingUser.usuarioId, datos)}
+        />
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------- Edición de un colaborador
+
+type EditDatos = { telefono?: string; rolNombre?: UserRole; activo?: boolean; password?: string };
+
+const EmployeeEditPanel: React.FC<{
+  empleado: Usuario;
+  isSelf: boolean;
+  isLight: boolean;
+  onClose: () => void;
+  onSave: (datos: EditDatos) => Promise<boolean>;
+}> = ({ empleado, isSelf, isLight, onClose, onSave }) => {
+  // El componente se monta con key = usuarioId, así el formulario siempre arranca con los datos del empleado elegido
+  const telefonoInicial = (empleado.telefono || '').replace(/\D/g, '').slice(-10);
+  const activoInicial = empleado.activo !== false;
+  const [rol, setRol] = useState<UserRole>(empleado.rol.rol);
+  const [telefono, setTelefono] = useState(telefonoInicial);
+  const [activo, setActivo] = useState(activoInicial);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const inputCls = `w-full rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-emerald-500 border ${
+    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+  }`;
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (saving) return;
+    setError('');
+
+    if (telefono && telefono.length !== 10) {
+      setError('El teléfono debe contener exactamente 10 números (ej. 3001234567).');
+      return;
+    }
+    if (password) {
+      const policyError = passwordPolicyError(password);
+      if (policyError) { setError(policyError); return; }
+    }
+
+    // Solo se envía lo que cambió
+    const datos: EditDatos = {};
+    if (telefono !== telefonoInicial) datos.telefono = telefono ? `+57 ${telefono}` : '';
+    if (!isSelf && rol !== empleado.rol.rol) datos.rolNombre = rol;
+    if (!isSelf && activo !== activoInicial) datos.activo = activo;
+    if (password) datos.password = password;
+
+    if (Object.keys(datos).length === 0) {
+      setError('No hay cambios para guardar.');
+      return;
+    }
+
+    setSaving(true);
+    const ok = await onSave(datos);
+    setSaving(false);
+    if (ok) onClose();
+    else setError('El servidor rechazó el cambio. Revisa el aviso con el motivo.');
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <form
+        onSubmit={handleSave}
+        className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-4 ${
+          isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#091526] border-slate-800 text-white'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-base">Editar colaborador</h3>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              {empleado.nombre} {empleado.apellido} • {empleado.email}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className={`p-1.5 rounded-lg cursor-pointer ${isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-slate-800 text-slate-400'}`}
+            aria-label="Cerrar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {error && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs font-bold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div>
+          <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Rol en el ERP</label>
+          <select
+            value={rol}
+            disabled={isSelf}
+            onChange={(e) => setRol(e.target.value as UserRole)}
+            className={`${inputCls} cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
+          >
+            {STAFF_ROLE_LABELS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          {isSelf && (
+            <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              No puedes cambiar tu propio rol ni desactivar tu propia cuenta.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Teléfono móvil</label>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 select-none">+57</span>
+            <input
+              type="tel"
+              inputMode="numeric"
+              maxLength={10}
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              placeholder="3001234567"
+              className={`${inputCls} pl-12 font-mono`}
+            />
+          </div>
+        </div>
+
+        <label className={`flex items-center justify-between gap-3 p-3 rounded-xl border text-xs font-bold ${
+          isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-slate-900/60'
+        } ${isSelf ? 'opacity-60' : 'cursor-pointer'}`}>
+          <span>Cuenta activa (puede iniciar sesión)</span>
+          <input
+            type="checkbox"
+            checked={activo}
+            disabled={isSelf}
+            onChange={(e) => setActivo(e.target.checked)}
+            className="w-4 h-4 accent-emerald-500"
+          />
+        </label>
+
+        <div>
+          <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+            Contraseña temporal (opcional)
+          </label>
+          <input
+            type="text"
+            maxLength={20}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Dejar en blanco para no cambiarla"
+            autoComplete="new-password"
+            className={`${inputCls} font-mono`}
+          />
+          <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{PASSWORD_POLICY_HINT}</p>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold border cursor-pointer ${
+              isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-5 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer"
+          >
+            {saving ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 };

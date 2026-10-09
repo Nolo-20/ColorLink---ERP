@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   QrCode, 
@@ -21,57 +21,97 @@ export const PickupRedeemScannerModal: React.FC = () => {
     setRedeemModalOpen, 
     canjearCodigoRetiro, 
     pedidos, 
-    currentUser 
+    currentUser,
+    refreshData
   } = useApp();
 
   const [inputCode, setInputCode] = useState('');
-  const [resultPedido, setResultPedido] = useState<PedidoTienda | null>(null);
+  // Solo se guarda el id: el pedido se lee de la lista viva (refleja la entrega tras el canje)
+  const [resultId, setResultId] = useState<string | null>(null);
+  const resultPedido: PedidoTienda | null = resultId ? pedidos.find(p => p.ordenId === resultId) || null : null;
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [searching, setSearching] = useState(false);
+
+  // Cada vez que se abre el escáner empieza limpio
+  useEffect(() => {
+    if (redeemModalOpen) {
+      setInputCode('');
+      setResultId(null);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      setConfirming(false);
+      setSearching(false);
+    }
+  }, [redeemModalOpen]);
+
+  // Coincidencia exacta: el código corto de 8 caracteres, el código completo del QR o el número de pedido
+  const findByCode = (list: PedidoTienda[], raw: string) => {
+    const cleanCode = raw.trim().replace(/\s+/g, '').toUpperCase();
+    if (!cleanCode) return undefined;
+    return list.find(p =>
+      p.modalidadEntrega === 'recogida_sucursal' && (
+        p.codigoRetiro?.toUpperCase() === cleanCode ||
+        p.qrCodeData?.toUpperCase() === cleanCode ||
+        p.pedidoId.toUpperCase() === cleanCode
+      )
+    );
+  };
+
+  // Si el código no estaba en la lista local, se recarga y se vuelve a buscar con los datos nuevos
+  const [pendingLookup, setPendingLookup] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingLookup === null || searching) return;
+    const found = findByCode(pedidos, pendingLookup);
+    if (found) {
+      setResultId(found.ordenId);
+    } else {
+      setErrorMessage(`No se encontró ningún pedido de retiro con el código "${pendingLookup}". Verifica con el cliente.`);
+    }
+    setPendingLookup(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingLookup, searching, pedidos]);
 
   if (!redeemModalOpen) return null;
 
-  const handleSearchAndValidate = (e: React.FormEvent) => {
+  const handleSearchAndValidate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (searching) return;
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    // Coincidencia exacta: el código corto de 8 caracteres, el código completo del QR o el número de pedido
-    const cleanCode = inputCode.trim().replace(/\s+/g, '').toUpperCase();
-    const found = cleanCode
-      ? pedidos.find(p =>
-          p.modalidadEntrega === 'recogida_sucursal' && (
-            p.codigoRetiro?.toUpperCase() === cleanCode ||
-            p.qrCodeData?.toUpperCase() === cleanCode ||
-            p.pedidoId.toUpperCase() === cleanCode
-          )
-        )
-      : undefined;
-
-    if (!found) {
-      setErrorMessage(`No se encontró ningún pedido de retiro con el código "${inputCode}". Verifica con el cliente.`);
-      setResultPedido(null);
+    const found = findByCode(pedidos, inputCode);
+    if (found) {
+      setResultId(found.ordenId);
       return;
     }
 
-    setResultPedido(found);
+    // Puede ser un pedido creado después de la última actualización: se recarga antes de decir que no existe
+    setResultId(null);
+    setSearching(true);
+    try {
+      await refreshData();
+    } finally {
+      setSearching(false);
+      setPendingLookup(inputCode);
+    }
   };
 
   const handleConfirmRedemption = async () => {
     if (!resultPedido || confirming) return;
     setConfirming(true);
     setErrorMessage(null);
-    // Se envía el código completo del QR: no hay ambigüedad posible
-    const res = await canjearCodigoRetiro(resultPedido.qrCodeData || resultPedido.codigoRetiro || inputCode);
-    setConfirming(false);
-    if (res.success) {
-      setSuccessMessage(res.message);
-      if (res.pedido) {
-        setResultPedido(res.pedido);
+    try {
+      // Se envía el código completo del QR: no hay ambigüedad posible
+      const res = await canjearCodigoRetiro(resultPedido.qrCodeData || resultPedido.codigoRetiro || inputCode);
+      if (res.success) {
+        setSuccessMessage(res.message);
+      } else {
+        setErrorMessage(res.message);
       }
-    } else {
-      setErrorMessage(res.message);
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -128,10 +168,11 @@ export const PickupRedeemScannerModal: React.FC = () => {
                 </div>
                 <button
                   type="submit"
-                  className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
+                  disabled={searching}
+                  className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
                 >
                   <Search className="w-4 h-4" />
-                  <span>Verificar</span>
+                  <span>{searching ? 'Buscando…' : 'Verificar'}</span>
                 </button>
               </div>
             </div>
@@ -149,13 +190,13 @@ export const PickupRedeemScannerModal: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setInputCode(p.codigoRetiro || p.pedidoId);
-                        setResultPedido(p);
+                        setResultId(p.ordenId);
                         setErrorMessage(null);
                         setSuccessMessage(null);
                       }}
                       className="px-2.5 py-1 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 font-mono text-[11px] font-bold transition-colors cursor-pointer"
                     >
-                      {p.codigoRetiro} ({p.pedidoId} - {p.clienteNombre.split(' ')[0]})
+                      {p.codigoRetiro || '—'} ({p.pedidoId} - {p.clienteNombre.split(' ')[0]})
                     </button>
                   ))}
                 </div>
@@ -204,7 +245,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
                 </div>
 
                 <span className="text-xs font-mono font-bold text-emerald-400">
-                  Total Pagado: ${resultPedido.total.toLocaleString('es-CO')} COP
+                  Total Pagado: ${(resultPedido.total ?? 0).toLocaleString('es-CO')} COP
                 </span>
               </div>
 
@@ -213,8 +254,8 @@ export const PickupRedeemScannerModal: React.FC = () => {
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Cliente / Reclama</span>
                   <p className="font-bold text-white text-xs">{resultPedido.clienteNombre}</p>
-                  <p className="text-slate-400">{resultPedido.clienteDoc || 'Doc: Verificado'}</p>
-                  <p className="text-slate-400">Tel: {resultPedido.clienteTelefono}</p>
+                  {resultPedido.clienteDoc && <p className="text-slate-400">Doc: {resultPedido.clienteDoc}</p>}
+                  <p className="text-slate-400">Tel: {resultPedido.clienteTelefono || '—'}</p>
                   {resultPedido.empresaNombre && (
                     <p className="text-emerald-400 text-[11px] font-medium">{resultPedido.empresaNombre}</p>
                   )}
@@ -222,9 +263,9 @@ export const PickupRedeemScannerModal: React.FC = () => {
 
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Sucursal de Retiro Seleccionada</span>
-                  <p className="font-bold text-white text-xs">{resultPedido.sucursalRetiro}</p>
+                  <p className="font-bold text-white text-xs">{resultPedido.sucursalRetiro || 'Sucursal no especificada'}</p>
                   <p className="text-slate-400">Entrega: <strong className="text-slate-200">Retiro en sucursal</strong></p>
-                  <p className="text-slate-400">Código Asignado: <strong className="font-mono text-emerald-400">{resultPedido.codigoRetiro}</strong></p>
+                  <p className="text-slate-400">Código Asignado: <strong className="font-mono text-emerald-400">{resultPedido.codigoRetiro || '—'}</strong></p>
                 </div>
               </div>
 
@@ -247,7 +288,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
                         <div>
                           <span className="font-bold text-white block">{item.nombre}</span>
                           <span className="text-[11px] text-slate-400 font-medium">
-                            {item.presentacion} {item.color && `• Color: ${item.color}`}
+                            {[item.presentacion, item.color ? `Color: ${item.color}` : ''].filter(Boolean).join(' • ')}
                           </span>
                         </div>
                       </div>
@@ -257,7 +298,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
                           Cant: {item.cantidad}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono">
-                          ${item.total.toLocaleString('es-CO')} COP
+                          ${(item.total ?? 0).toLocaleString('es-CO')} COP
                         </span>
                       </div>
                     </div>
@@ -295,7 +336,9 @@ export const PickupRedeemScannerModal: React.FC = () => {
                     ✓ Entregado por {resultPedido.canjeadoPor || 'Personal de sucursal'}{resultPedido.sucursalRetiro ? ` • ${resultPedido.sucursalRetiro}` : ''}
                   </span>
                   <span className="text-[11px] font-mono text-slate-400">
-                    {resultPedido.fechaCanje ? new Date(resultPedido.fechaCanje).toLocaleString('es-CO') : 'Canjeado'}
+                    {resultPedido.fechaCanje && !isNaN(new Date(resultPedido.fechaCanje).getTime())
+                      ? new Date(resultPedido.fechaCanje).toLocaleString('es-CO')
+                      : '—'}
                   </span>
                 </div>
               )}

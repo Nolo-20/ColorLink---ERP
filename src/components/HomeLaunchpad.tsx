@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { TabType } from '../context/AppContext';
+import { ESTADO_PROYECTO_LABEL, ESTADOS_PROYECTO_CERRADOS } from '../estados';
 import { 
   Layers, 
   GitCommit, 
@@ -61,7 +62,11 @@ export const HomeLaunchpad: React.FC = () => {
   const inTintingOrWarehouse = proyectos.filter(p => p.estadoPipeline === 'cotizado' || p.estadoPipeline === 'aprobado_calidad').length;
   const delivered = proyectos.filter(p => p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega).length;
   
-  const totalCunetes = proyectos.reduce((acc, p) => {
+  const obrasActivas = proyectos.filter(p => !ESTADOS_PROYECTO_CERRADOS.includes(p.estadoPipeline)).length;
+  const pedidosActivos = pedidos.filter(p => p.estadoPedido !== 'entregado_recogido' && p.estadoPedido !== 'cancelado').length;
+  const numBodegas = new Set(inventarios.map(i => i.nombreBodega).filter(Boolean)).size;
+
+  const totalCunetes = proyectos.filter(p => p.estadoPipeline !== 'cancelado').reduce((acc, p) => {
     const q = p.cotizaciones && p.cotizaciones[0];
     return acc + (q?.cunetes5g || 0);
   }, 0);
@@ -73,7 +78,7 @@ export const HomeLaunchpad: React.FC = () => {
       title: 'Pedidos & Canje en Sucursal',
       subtitle: 'Tienda Online & Punto de Venta',
       description: 'Gestión de compras, control de estados (comprado, alistamiento, listo en tienda) y canje de código/QR para retiro en sucursal.',
-      badge: `${pedidos.length} Pedidos Activos`,
+      badge: `${pedidosActivos} ${pedidosActivos === 1 ? 'Pedido Activo' : 'Pedidos Activos'}`,
       badgeColor: 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40',
       cardBg: 'from-[#0a1e2f] to-[#071421] hover:from-[#0d273d] hover:to-[#0a1a2b]',
       borderColor: 'border-emerald-500/30 hover:border-emerald-500/70',
@@ -86,7 +91,7 @@ export const HomeLaunchpad: React.FC = () => {
       title: 'Proyectos & Cotizaciones',
       subtitle: 'Comercial & Obras',
       description: 'Gestión de obras, cálculo volumétrico en cuñetes de 5 galones y galones sueltos, con márgenes y descuentos de obra.',
-      badge: `${proyectos.length} Proyectos Activos`,
+      badge: `${obrasActivas} ${obrasActivas === 1 ? 'Proyecto Activo' : 'Proyectos Activos'}`,
       badgeColor: 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40',
       cardBg: 'from-[#0b1c2b] to-[#091524] hover:from-[#0e2437] hover:to-[#0c1c2f]',
       borderColor: 'border-emerald-500/30 hover:border-emerald-500/70',
@@ -112,7 +117,7 @@ export const HomeLaunchpad: React.FC = () => {
       title: 'Control de Calidad',
       subtitle: 'Peritaje Técnico NTC',
       description: 'Verificación higrométrica de humedad en muro, severidad de fisuras, adherencia y dictamen de aprobación técnica de sustratos.',
-      badge: pendingQuality > 0 ? `${pendingQuality} Requiere Dictamen` : 'Al Día (100%)',
+      badge: pendingQuality > 0 ? `${pendingQuality} Requiere${pendingQuality === 1 ? '' : 'n'} Dictamen` : 'Al Día',
       badgeColor: pendingQuality > 0 ? 'bg-amber-950/80 text-amber-300 border-amber-500/50 animate-pulse' : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40',
       cardBg: 'from-[#1f1a11] to-[#12100d] hover:from-[#2a2215] hover:to-[#17130f]',
       borderColor: 'border-amber-500/30 hover:border-amber-500/70',
@@ -125,7 +130,7 @@ export const HomeLaunchpad: React.FC = () => {
       title: 'Inventarios & Bodegas',
       subtitle: 'Lotes & Tintometría Lab',
       description: 'Control de existencias por bodegas en Medellín, Itagüí y Bello. Trazabilidad de lotes y formulación computarizada de color.',
-      badge: `${inventarios.length} Almacenes Activos`,
+      badge: `${numBodegas} ${numBodegas === 1 ? 'Bodega' : 'Bodegas'} con inventario`,
       badgeColor: 'bg-cyan-950/80 text-cyan-300 border-cyan-500/40',
       cardBg: 'from-[#0b1f2b] to-[#081520] hover:from-[#0d2737] hover:to-[#0b1b2a]',
       borderColor: 'border-cyan-500/30 hover:border-cyan-500/70',
@@ -138,7 +143,7 @@ export const HomeLaunchpad: React.FC = () => {
       title: 'Módulo de Despachos',
       subtitle: 'Flota Valle de Aburrá',
       description: 'Asignación de vehículos y conductores, cálculo de tiempos de tránsito por municipio y emisión de remisiones con firma en terreno.',
-      badge: inTransit > 0 ? `${inTransit} Vehículo en Ruta` : 'Flota Disponible',
+      badge: inTransit > 0 ? `${inTransit} ${inTransit === 1 ? 'Despacho' : 'Despachos'} en Ruta` : 'Sin despachos en ruta',
       badgeColor: inTransit > 0 ? 'bg-orange-950/80 text-orange-300 border-orange-500/50' : 'bg-slate-800 text-slate-300 border-slate-700',
       cardBg: 'from-[#1f1710] to-[#120e0a] hover:from-[#2b2016] hover:to-[#18120c]',
       borderColor: 'border-orange-500/30 hover:border-orange-500/70',
@@ -200,7 +205,7 @@ export const HomeLaunchpad: React.FC = () => {
               {currentUser.avatarUrl ? (
                 <img src={currentUser.avatarUrl} alt={currentUser.nombre} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-2xl font-black text-emerald-400">{currentUser.nombre[0]}</span>
+                <span className="text-2xl font-black text-emerald-400">{(currentUser.nombre || currentUser.email || '?').charAt(0).toUpperCase()}</span>
               )}
             </div>
 
@@ -217,17 +222,21 @@ export const HomeLaunchpad: React.FC = () => {
               <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                 <span className={`flex items-center gap-1.5 font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                   <Building2 className="w-3.5 h-3.5 text-emerald-500" />
-                  {currentUser.company || 'ColorLink S.A.S. - Valle de Aburrá'}
+                  {currentUser.company || 'ColorLink'}
                 </span>
-                <span>•</span>
-                <span className={`flex items-center gap-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  <MapPin className="w-3.5 h-3.5 text-sky-500" />
-                  {currentUser.city || 'Medellín'} (Sede Matriz)
-                </span>
+                {currentUser.city && (
+                  <>
+                    <span>•</span>
+                    <span className={`flex items-center gap-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                      <MapPin className="w-3.5 h-3.5 text-sky-500" />
+                      {currentUser.city}
+                    </span>
+                  </>
+                )}
                 <span>•</span>
                 <span className="flex items-center gap-1.5 text-emerald-500 font-mono font-semibold">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  Conectado al ERP en Vivo
+                  Sesión activa
                 </span>
               </div>
             </div>
@@ -292,8 +301,8 @@ export const HomeLaunchpad: React.FC = () => {
             <span>Obras Activas</span>
             <Layers className="w-4 h-4 text-emerald-500" />
           </div>
-          <div className={`text-2xl md:text-3xl font-black font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{proyectos.length}</div>
-          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>En el Valle de Aburrá</span>
+          <div className={`text-2xl md:text-3xl font-black font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{obrasActivas}</div>
+          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Sin contar despachadas ni canceladas</span>
         </div>
 
         <div className={`border rounded-2xl p-4 shadow-lg transition-all ${
@@ -306,7 +315,7 @@ export const HomeLaunchpad: React.FC = () => {
           <div className="text-2xl md:text-3xl font-black text-emerald-500 font-mono">
             {totalCunetes} <span className={`text-xs font-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>cuñetes (5G)</span>
           </div>
-          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{(totalCunetes * 5).toLocaleString()} galones totales</span>
+          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{(totalCunetes * 5).toLocaleString('es-CO')} galones en cuñetes</span>
         </div>
 
         <div className={`border rounded-2xl p-4 shadow-lg transition-all ${
@@ -317,7 +326,7 @@ export const HomeLaunchpad: React.FC = () => {
             <ShieldCheck className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-2xl md:text-3xl font-black text-amber-500 font-mono">{pendingQuality}</div>
-          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Pruebas higrométricas</span>
+          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Proyectos en peritaje técnico</span>
         </div>
 
         <div className={`border rounded-2xl p-4 shadow-lg transition-all ${
@@ -328,7 +337,7 @@ export const HomeLaunchpad: React.FC = () => {
             <Truck className="w-4 h-4 text-orange-500" />
           </div>
           <div className="text-2xl md:text-3xl font-black text-orange-500 font-mono">{inTransit}</div>
-          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Vehículos en tránsito</span>
+          <span className={`text-[10px] block mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Despachados sin entrega confirmada</span>
         </div>
       </div>
 
@@ -467,7 +476,7 @@ export const HomeLaunchpad: React.FC = () => {
         <div className={`flex items-center justify-between pb-3 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
           <h3 className={`font-bold text-base flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
             <Clock className="w-4 h-4 text-emerald-500" />
-            <span>Últimos Movimientos en el Valle de Aburrá</span>
+            <span>Últimos Movimientos</span>
           </h3>
           <button 
             onClick={() => setActiveTab('pipeline')}
@@ -478,6 +487,9 @@ export const HomeLaunchpad: React.FC = () => {
         </div>
 
         <div className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-slate-800/80'}`}>
+          {proyectos.length === 0 && (
+            <p className={`py-4 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Aún no hay movimientos registrados.</p>
+          )}
           {proyectos.slice(0, 3).map((p) => {
             const latestMov = p.historialMovimientos && p.historialMovimientos[0];
             return (
@@ -488,17 +500,19 @@ export const HomeLaunchpad: React.FC = () => {
                     <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold uppercase ${
                       isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-slate-800 text-slate-300 border-slate-700'
                     }`}>
-                      {p.estadoPipeline.replace(/_/g, ' ')}
+                      {ESTADO_PROYECTO_LABEL[p.estadoPipeline]}
                     </span>
                   </div>
                   <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {latestMov?.notas || 'Actualización de obra en terreno'}
+                    {latestMov?.notas || 'Sin movimientos registrados'}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3 sm:self-center">
                   <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {latestMov?.fecha ? new Date(latestMov.fecha).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : 'Hoy'}
+                    {latestMov?.fecha
+                      ? new Date(latestMov.fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
+                      : p.updatedAt ? new Date(p.updatedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                   </span>
                   <button
                     onClick={() => {

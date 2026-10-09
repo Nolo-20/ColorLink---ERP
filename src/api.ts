@@ -78,6 +78,8 @@ export const api = {
   // ---------- Inventario ----------
   getInventory: () => get('/api/inventory'),
   setStock: (inventarioId: string, cantidad: number) => patch(`/api/inventory/${inventarioId}`, { cantidad }),
+  /** Ajuste relativo (+/-): el backend suma `delta` al valor actual, sin pisar cambios concurrentes. */
+  adjustStock: (inventarioId: string, delta: number) => patch(`/api/inventory/${inventarioId}`, { delta }),
   createStockEntry: (body: {
     productoId: string;
     ciudadId: number;

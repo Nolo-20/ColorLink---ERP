@@ -50,15 +50,37 @@ export const OrdersStoreView: React.FC = () => {
   const [filterModalidad, setFilterModalidad] = useState<string>('all');
   const [filterEstado, setFilterEstado] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedOrderDetails, setSelectedOrderDetails] = useState<PedidoTienda | null>(null);
+  // Solo se guarda el id: el detalle se lee de la lista viva para reflejar cambios de estado
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const selectedOrderDetails: PedidoTienda | null = selectedOrderId
+    ? pedidos.find(p => p.ordenId === selectedOrderId) || null
+    : null;
+  const [advancingId, setAdvancingId] = useState<string | null>(null);
 
-
-  // Sync with global navbar search
+  // Sincroniza con la búsqueda global de la barra superior (también cuando se borra)
   useEffect(() => {
-    if (searchQuery) {
-      setSearchTerm(searchQuery);
-    }
+    setSearchTerm(searchQuery || '');
   }, [searchQuery]);
+
+  const fmtFechaHora = (v?: string) => {
+    if (!v) return '—';
+    const t = new Date(v);
+    return isNaN(t.getTime()) ? '—' : t.toLocaleString('es-CO');
+  };
+
+  const handleAdvance = async (p: PedidoTienda, nextState: EstadoPedido, nextLabel: string) => {
+    if (advancingId) return;
+    setAdvancingId(p.ordenId);
+    try {
+      await cambiarEstadoPedido(
+        p.pedidoId,
+        nextState,
+        `Avanzado a "${nextLabel}" por ${currentUser?.nombre || 'Colaborador'} (${currentUser?.rol?.rol || 'Staff'})`
+      );
+    } finally {
+      setAdvancingId(null);
+    }
+  };
 
   // Filtered orders list
   const filteredOrders = pedidos.filter(p => {
@@ -76,9 +98,7 @@ export const OrdersStoreView: React.FC = () => {
   // Filtered store catalog
   const filteredProducts = productos.filter(p => {
     return p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.categoria && p.categoria.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.codigoColorLink && p.codigoColorLink.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.coloresDisponibles && p.coloresDisponibles.some(c => c.nombre.toLowerCase().includes(searchTerm.toLowerCase())));
+      (p.categoria && p.categoria.toLowerCase().includes(searchTerm.toLowerCase()));
   });
 
   // Helper description of who can advance each order state
@@ -99,10 +119,11 @@ export const OrdersStoreView: React.FC = () => {
           badgeColor: 'text-amber-500 bg-amber-500/10 border-amber-500/30',
         };
       case 'listo_sucursal':
+        // La entrega en mostrador SOLO se hace validando el código del cliente (escáner de retiro)
         return {
-          role: 'Jefe de Despachos / Administrador (o escáner de retiro)',
+          role: 'Despachos / Administrador / Asesor (con código de retiro)',
           nextState: 'entregado_recogido' as EstadoPedido,
-          nextLabel: 'Canjear Código & Entregar en Mostrador',
+          nextLabel: 'Validar Código & Entregar en Mostrador',
           badgeColor: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30',
         };
       case 'en_ruta_domicilio':
@@ -118,6 +139,13 @@ export const OrdersStoreView: React.FC = () => {
           nextState: null,
           nextLabel: 'Pedido Finalizado y Entregado',
           badgeColor: isLight ? 'text-slate-500 bg-slate-100 border-slate-300' : 'text-slate-400 bg-slate-900 border-slate-700',
+        };
+      case 'cancelado':
+        return {
+          role: 'Pedido cancelado',
+          nextState: null,
+          nextLabel: 'Pedido cancelado',
+          badgeColor: 'text-rose-500 bg-rose-500/10 border-rose-500/30',
         };
       default:
         return {
@@ -148,7 +176,7 @@ export const OrdersStoreView: React.FC = () => {
               Control de Pedidos & Canje de Retiro en Tienda
             </h2>
             <p className={`text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-              Monitoreo del ciclo completo de ventas de ColorLink. Asignación automática de códigos de canje QR para retiro en mostrador, despacho a domicilio y verificación de disponibilidad de colores en tiempo real.
+              Monitoreo del ciclo completo de ventas de la tienda web: alistamiento, despacho a domicilio y entrega en mostrador validando el código de retiro del cliente.
             </p>
           </div>
 
@@ -173,7 +201,7 @@ export const OrdersStoreView: React.FC = () => {
               1. Comprado & Confirmado
             </span>
             <span className={`font-semibold block mt-0.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>👤 Cliente en Tienda Web</span>
-            <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Verificado vía PSE o Tarjeta</span>
+            <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Pago registrado en la tienda web</span>
           </div>
 
           <div className={`p-3 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'}`}>
@@ -189,7 +217,7 @@ export const OrdersStoreView: React.FC = () => {
               3. Listo en Sucursal / Ruta
             </span>
             <span className={`font-semibold block mt-0.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>🏢 Jefe de Despachos</span>
-            <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Genera código RET-xxxx y QR</span>
+            <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>El cliente recibe su código de retiro y QR</span>
           </div>
 
           <div className={`p-3 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'}`}>
@@ -225,7 +253,7 @@ export const OrdersStoreView: React.FC = () => {
           }`}
         >
           <Palette className="w-4 h-4" />
-          <span>Catálogo de Tienda & Disponibilidad de Colores ({productos.length})</span>
+          <span>Catálogo & Disponibilidad ({productos.length})</span>
         </button>
       </div>
 
@@ -244,7 +272,7 @@ export const OrdersStoreView: React.FC = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por ID, cliente, código RET..."
+                placeholder="Buscar por pedido, cliente o código de retiro..."
                 className={`w-full rounded-xl pl-10 pr-4 py-2 text-xs focus:outline-none focus:border-emerald-500 font-medium ${
                   isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
                 }`}
@@ -304,6 +332,7 @@ export const OrdersStoreView: React.FC = () => {
                 <option value="listo_sucursal">Listo para Retiro en Sucursal</option>
                 <option value="en_ruta_domicilio">En Ruta Domicilio</option>
                 <option value="entregado_recogido">Entregado / Recogido</option>
+                <option value="cancelado">Cancelado</option>
               </select>
             </div>
           </div>
@@ -319,7 +348,9 @@ export const OrdersStoreView: React.FC = () => {
                   No se encontraron pedidos con los filtros aplicados.
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  Prueba cambiando la búsqueda o presiona "Registrar Venta / Pedido en Línea" para ingresar una nueva orden.
+                  {pedidos.length === 0
+                    ? 'Aún no hay pedidos de la tienda web.'
+                    : 'Prueba cambiando la búsqueda o los filtros.'}
                 </p>
               </div>
             ) : (
@@ -394,6 +425,12 @@ export const OrdersStoreView: React.FC = () => {
                               Entregado & Finalizado
                             </span>
                           )}
+                          {p.estadoPedido === 'cancelado' && (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/40 uppercase flex items-center gap-1">
+                              <Ban className="w-3 h-3 text-rose-500" />
+                              Cancelado
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -409,10 +446,7 @@ export const OrdersStoreView: React.FC = () => {
                               Sucursal de Retiro Seleccionada:
                             </span>
                             <span className={`text-xs font-bold block ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                              {p.sucursalRetiro || 'Sucursal Principal Guayabal'}
-                            </span>
-                            <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                              Horario: Lunes a Sábado 7:30 AM - 5:30 PM
+                              {p.sucursalRetiro || 'Sucursal no especificada'}
                             </span>
                           </div>
 
@@ -425,7 +459,7 @@ export const OrdersStoreView: React.FC = () => {
                                 ? 'text-emerald-700 bg-white border-emerald-400 shadow-sm' 
                                 : 'text-emerald-300 bg-slate-950/80 border-emerald-500/40'
                             }`}>
-                              {p.codigoRetiro || 'GENERANDO'}
+                              {p.codigoRetiro || '—'}
                             </span>
                           </div>
                         </div>
@@ -436,13 +470,17 @@ export const OrdersStoreView: React.FC = () => {
                         <div className="flex items-center justify-between text-xs">
                           <div>
                             <span className={`font-bold block ${isLight ? 'text-slate-900' : 'text-white'}`}>{p.clienteNombre}</span>
-                            <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{p.clienteTelefono} • {p.clienteEmail}</span>
+                            <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {[p.clienteTelefono, p.clienteEmail].filter(Boolean).join(' • ') || '—'}
+                            </span>
                           </div>
                           <div className="text-right">
                             <span className="font-black text-sm font-mono text-emerald-500">
-                              ${p.total?.toLocaleString('es-CO')} COP
+                              ${(p.total ?? 0).toLocaleString('es-CO')} COP
                             </span>
-                            <span className={`text-[10px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Método: {p.metodoPago}</span>
+                            {p.metodoPago && (
+                              <span className={`text-[10px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Método: {p.metodoPago}</span>
+                            )}
                           </div>
                         </div>
 
@@ -456,10 +494,12 @@ export const OrdersStoreView: React.FC = () => {
                           {p.items?.map((item) => (
                             <div key={item.itemId} className="flex items-center justify-between text-xs">
                               <span className={`font-medium truncate max-w-[260px] ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                {item.cantidad}x {item.nombre} ({item.presentacion}) - <strong className="text-emerald-500">{item.color}</strong>
+                                {item.cantidad}x {item.nombre}
+                                {item.presentacion ? ` (${item.presentacion})` : ''}
+                                {item.color && <> - <strong className="text-emerald-500">{item.color}</strong></>}
                               </span>
                               <span className="font-mono font-bold text-[11px] text-slate-400">
-                                ${item.total?.toLocaleString('es-CO')}
+                                ${(item.total ?? 0).toLocaleString('es-CO')}
                               </span>
                             </div>
                           ))}
@@ -480,7 +520,7 @@ export const OrdersStoreView: React.FC = () => {
 
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setSelectedOrderDetails(p)}
+                          onClick={() => setSelectedOrderId(p.ordenId)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                             isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                           }`}
@@ -489,18 +529,24 @@ export const OrdersStoreView: React.FC = () => {
                         </button>
 
                         {/* Next transition button */}
-                        {perm.nextState && canRole.gestionarPedidos(currentUser?.rol.rol) && (
+                        {p.estadoPedido === 'listo_sucursal' ? (
+                          // Entrega en mostrador: siempre validando el código del cliente
+                          canRole.canjearRetiro(currentUser?.rol.rol) && (
+                            <button
+                              onClick={() => setRedeemModalOpen(true)}
+                              className="px-3.5 py-1.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <QrCode className="w-3.5 h-3.5" />
+                              <span>{perm.nextLabel}</span>
+                            </button>
+                          )
+                        ) : perm.nextState && canRole.gestionarPedidos(currentUser?.rol.rol) && (
                           <button
-                            onClick={() => {
-                              cambiarEstadoPedido(
-                                p.pedidoId, 
-                                perm.nextState!, 
-                                `Avanzado a "${perm.nextLabel}" por ${currentUser?.nombre || 'Colaborador'} (${currentUser?.rol?.rol || 'Staff'})`
-                              );
-                            }}
-                            className="px-3.5 py-1.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                            onClick={() => handleAdvance(p, perm.nextState!, perm.nextLabel)}
+                            disabled={advancingId !== null}
+                            className="px-3.5 py-1.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                           >
-                            <span>{perm.nextLabel}</span>
+                            <span>{advancingId === p.ordenId ? 'Actualizando…' : perm.nextLabel}</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
                         )}
@@ -526,7 +572,7 @@ export const OrdersStoreView: React.FC = () => {
                   🛒 Catálogo en Línea & Disponibilidad Reflejada en Tiempo Real:
                 </span>
                 <p className="text-xs leading-relaxed">
-                  Catálogo oficial y formulaciones tintométricas disponibles para compra en tienda web y mostrador. La disponibilidad de inventario se sincroniza en tiempo real con las bodegas.
+                  Productos del catálogo con su disponibilidad según el stock registrado en bodegas.
                 </p>
               </div>
               <button
@@ -542,7 +588,6 @@ export const OrdersStoreView: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredProducts.map((prod) => {
               const isAvailable = inventarios.some(i => i.productoId === prod.productoId && (i.cantidadDisponible || 0) > 0);
-              const availableColors = prod.coloresDisponibles?.filter(c => c.disponible !== false) || [];
 
               return (
                 <div
@@ -557,11 +602,13 @@ export const OrdersStoreView: React.FC = () => {
                     {/* Header */}
                     <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-700/40">
                       <div>
-                        <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${
-                          isLight ? 'text-slate-500' : 'text-slate-400'
-                        }`}>
-                          Ref: {prod.codigoColorLink} • {prod.categoria}
-                        </span>
+                        {prod.categoria && (
+                          <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${
+                            isLight ? 'text-slate-500' : 'text-slate-400'
+                          }`}>
+                            {prod.categoria}
+                          </span>
+                        )}
                         <h4 className={`text-base font-extrabold mt-0.5 leading-snug ${
                           isLight ? 'text-slate-900' : 'text-white'
                         }`}>
@@ -569,11 +616,13 @@ export const OrdersStoreView: React.FC = () => {
                         </h4>
                         <div className="flex items-center gap-2 mt-1">
                           <span className={`font-black text-sm font-mono text-emerald-500 ${!isAvailable ? 'line-through text-slate-400' : ''}`}>
-                            ${prod.precio?.toLocaleString('es-CO')} COP
+                            {prod.precio != null ? `$${prod.precio.toLocaleString('es-CO')} COP` : 'Sin precio'}
                           </span>
-                          <span className={`text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                            • {prod.presentacion}
-                          </span>
+                          {prod.presentacion && (
+                            <span className={`text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                              • {prod.presentacion}
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -597,49 +646,6 @@ export const OrdersStoreView: React.FC = () => {
                       </span>
                     </div>
 
-                    {/* Colors Availability Swatches */}
-                    <div className="pt-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className={`font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                          Colores de Formulación:
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          {availableColors.length} de {prod.coloresDisponibles?.length || 0} disponibles
-                        </span>
-                      </div>
-
-                      {!prod.coloresDisponibles || prod.coloresDisponibles.length === 0 ? (
-                        <p className={`text-xs italic ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                          Color estándar de fábrica.
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {prod.coloresDisponibles.map((c) => (
-                            <div
-                              key={c.nombre}
-                              className={`p-1.5 rounded-lg border flex items-center justify-between gap-1 text-[11px] ${
-                                c.disponible
-                                  ? isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-800 text-slate-200'
-                                  : 'bg-rose-950/20 border-rose-500/30 text-rose-400 opacity-60'
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5 truncate">
-                                <span 
-                                  className="w-3 h-3 rounded-full border border-black/20 flex-shrink-0"
-                                  style={{ backgroundColor: c.hex }}
-                                />
-                                <span className={`truncate ${c.disponible ? '' : 'line-through'}`}>
-                                  {c.nombre}
-                                </span>
-                              </div>
-                              <span className={`text-[10px] font-bold ${c.disponible ? 'text-emerald-500' : 'text-rose-400'}`}>
-                                {c.disponible ? '✓' : '✗'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </div>
 
                   {!isAvailable && (
@@ -668,7 +674,7 @@ export const OrdersStoreView: React.FC = () => {
                 <h3 className="font-extrabold text-base">Detalle Completo del Pedido</h3>
               </div>
               <button
-                onClick={() => setSelectedOrderDetails(null)}
+                onClick={() => setSelectedOrderId(null)}
                 className="p-1 text-slate-400 hover:text-slate-200 cursor-pointer"
               >
                 ✕
@@ -682,8 +688,14 @@ export const OrdersStoreView: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Modalidad:</span>
-                <span className="font-bold capitalize">{selectedOrderDetails.modalidadEntrega.replace('_', ' ')}</span>
+                <span className="font-bold">{selectedOrderDetails.modalidadEntrega === 'recogida_sucursal' ? 'Retiro en sucursal' : 'Envío a domicilio'}</span>
               </div>
+              {selectedOrderDetails.direccionEntrega && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-400">Dirección de Entrega:</span>
+                  <span className="font-bold text-right">{selectedOrderDetails.direccionEntrega}</span>
+                </div>
+              )}
               {selectedOrderDetails.sucursalRetiro && (
                 <div className="flex justify-between">
                   <span className="text-slate-400">Sucursal de Retiro:</span>
@@ -698,29 +710,32 @@ export const OrdersStoreView: React.FC = () => {
               )}
               <div className="flex justify-between">
                 <span className="text-slate-400">Total a Pagar / Pagado:</span>
-                <span className="font-mono font-black text-emerald-500">${selectedOrderDetails.total?.toLocaleString('es-CO')} COP</span>
+                <span className="font-mono font-black text-emerald-500">${(selectedOrderDetails.total ?? 0).toLocaleString('es-CO')} COP</span>
               </div>
             </div>
 
             {/* Traceability history */}
             <div className="space-y-2 pt-2 border-t border-slate-800">
               <span className="font-bold block uppercase text-[10px] text-slate-400">Historial de Estados y Roles:</span>
+              {selectedOrderDetails.historialEstados.length === 0 && (
+                <p className="text-slate-400">Sin movimientos registrados.</p>
+              )}
               {selectedOrderDetails.historialEstados.map((h, i) => (
                 <div key={i} className={`p-3 rounded-xl border text-xs space-y-1 ${
                   isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-slate-800'
                 }`}>
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-emerald-500 uppercase text-[10px]">{h.estado.replace(/_/g, ' ')}</span>
-                    <span className="text-[10px] font-mono text-slate-400">{new Date(h.fecha).toLocaleString('es-CO')}</span>
+                    <span className="text-[10px] font-mono text-slate-400">{fmtFechaHora(h.fecha)}</span>
                   </div>
-                  <p className="font-medium">{h.notas}</p>
+                  {h.notas && <p className="font-medium">{h.notas}</p>}
                   <p className="text-slate-400 text-[10px]">Por: <strong className={isLight ? 'text-slate-700' : 'text-slate-300'}>{h.usuario}</strong> ({h.rol})</p>
                 </div>
               ))}
             </div>
 
             <button
-              onClick={() => setSelectedOrderDetails(null)}
+              onClick={() => setSelectedOrderId(null)}
               className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs cursor-pointer"
             >
               Cerrar

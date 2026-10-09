@@ -7,10 +7,7 @@ import {
   Printer, 
   CheckCircle2, 
   Truck, 
-  MapPin, 
-  Building2, 
-  ShieldCheck, 
-  QrCode 
+  ShieldCheck
 } from 'lucide-react';
 
 interface Props {
@@ -22,19 +19,29 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
   const { confirmarEntrega, currentUser } = useApp();
   const receiptRef = useRef<HTMLDivElement>(null);
 
-  const [recibidoPor, setRecibidoPor] = React.useState(
-    proyecto.despacho?.recibidoPor || 'Residente de Obra / Interventor'
-  );
-  const [docRecibe, setDocRecibe] = React.useState(
-    proyecto.despacho?.documentoRecibe || 'CC 1.037.892.401'
-  );
+  const [recibidoPor, setRecibidoPor] = React.useState(proyecto.despacho?.recibidoPor || '');
+  const [docRecibe, setDocRecibe] = React.useState(proyecto.despacho?.documentoRecibe || '');
+  const [saving, setSaving] = React.useState(false);
 
   const latestQuote = proyecto.cotizaciones && proyecto.cotizaciones[0];
   const isDelivered = !!proyecto.despacho?.fechaEntrega;
+  const d = proyecto.despacho;
+  const fmtFecha = (v?: string) => {
+    if (!v) return '—';
+    const t = new Date(v);
+    return isNaN(t.getTime()) ? '—' : t.toLocaleDateString('es-CO');
+  };
+  const dash = (v?: string | number | null) => (v == null || v === '' ? '—' : v);
 
-  const handleConfirmSignature = (e: React.FormEvent) => {
+  const handleConfirmSignature = async (e: React.FormEvent) => {
     e.preventDefault();
-    confirmarEntrega(proyecto.proyectoId, recibidoPor, docRecibe);
+    if (saving || !recibidoPor.trim()) return;
+    setSaving(true);
+    try {
+      await confirmarEntrega(proyecto.proyectoId, recibidoPor.trim(), docRecibe.trim());
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handlePrint = () => {
@@ -54,7 +61,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
             <div>
               <h3 className="font-bold text-base text-white">Remisión Oficial de Despacho & Recibo</h3>
               <span className="text-[11px] font-mono text-emerald-400">
-                Guía: {proyecto.despacho?.numeroGuia || 'CL-DSP-2026-PENDIENTE'}
+                Guía: {d?.numeroGuia || 'Pendiente de despacho'}
               </span>
             </div>
           </div>
@@ -90,10 +97,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
                   COLORLINK S.A.S.
                 </span>
                 <span className="text-[10px] text-slate-400 block">
-                  NIT: 901.442.890-4 • Valle de Aburrá, Colombia
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  PBX: (+57 4) 444 2026 • logistica@colorlink.co
+                  Remisión de despacho a obra
                 </span>
               </div>
             </div>
@@ -103,10 +107,10 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
                 REMISIÓN TÉCNICA DE DESPACHO
               </span>
               <span className="text-lg font-black font-mono text-emerald-400 block">
-                {proyecto.despacho?.numeroGuia || 'CL-DSP-2026-0891'}
+                {d?.numeroGuia || '—'}
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                Fecha: {new Date().toLocaleDateString('es-CO')}
+                Salida: {fmtFecha(d?.horaSalida)}
               </span>
             </div>
           </div>
@@ -117,22 +121,22 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
               <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold mb-1">
                 Datos de la Constructora / Obra
               </span>
-              <p className="font-bold text-white text-xs">{proyecto.empresa?.razonSocial}</p>
-              <p className="text-slate-300">NIT: {proyecto.empresa?.nitCedula}</p>
+              <p className="font-bold text-white text-xs">{dash(proyecto.empresa?.razonSocial)}</p>
+              <p className="text-slate-300">NIT: {dash(proyecto.empresa?.nitCedula)}</p>
               <p className="text-slate-300">Obra: <strong className="text-emerald-300">{proyecto.nombreProyecto}</strong></p>
-              <p className="text-slate-300">Dirección: {proyecto.empresa?.direccionDespacho}</p>
-              <p className="text-slate-300">Municipio: {proyecto.empresa?.ciudad?.ciudad || 'Medellín'}</p>
+              <p className="text-slate-300">Dirección: {dash(d?.direccionEntrega || proyecto.empresa?.direccionDespacho)}</p>
+              <p className="text-slate-300">Municipio: {dash(d?.ciudadEntrega || proyecto.empresa?.ciudad?.ciudad)}</p>
             </div>
 
             <div>
               <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold mb-1">
                 Datos del Transporte y Flota
               </span>
-              <p className="text-slate-300">Transportador: <strong>{proyecto.despacho?.transportador || 'ColorLink Express'}</strong></p>
-              <p className="text-slate-300">Placa Vehículo: <strong className="font-mono text-amber-400">{proyecto.despacho?.placaVehiculo || 'WLC-492'}</strong></p>
-              <p className="text-slate-300">Conductor: {proyecto.despacho?.conductorNombre || 'Hernán Darío Cadavid'}</p>
-              <p className="text-slate-300">Teléfono: {proyecto.despacho?.conductorTelefono || '+57 313 602 1199'}</p>
-              <p className="text-slate-300">Estado: <strong className="text-emerald-400 uppercase">{proyecto.despacho?.estadoDespacho || 'En Ruta'}</strong></p>
+              <p className="text-slate-300">Transportador: <strong>{dash(d?.transportador)}</strong></p>
+              <p className="text-slate-300">Placa Vehículo: <strong className="font-mono text-amber-400">{dash(d?.placaVehiculo)}</strong></p>
+              <p className="text-slate-300">Conductor: {dash(d?.conductorNombre)}</p>
+              <p className="text-slate-300">Teléfono: {dash(d?.conductorTelefono)}</p>
+              <p className="text-slate-300">Estado: <strong className="text-emerald-400 uppercase">{d ? d.estadoDespacho : 'Sin despachar'}</strong></p>
             </div>
           </div>
 
@@ -156,7 +160,11 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
                   <tr>
                     <td className="p-2.5 font-medium text-white">
                       Recubrimiento Arquitectónico Homologado
-                      <span className="block text-[10px] text-slate-400">{proyecto.ambiente} • {proyecto.tipoSuperficie}</span>
+                      {(proyecto.ambiente || proyecto.tipoSuperficie) && (
+                        <span className="block text-[10px] text-slate-400">
+                          {[proyecto.ambiente, proyecto.tipoSuperficie].filter(Boolean).join(' • ')}
+                        </span>
+                      )}
                     </td>
                     <td className="p-2.5">
                       <div className="flex items-center gap-1.5 font-medium text-slate-200">
@@ -164,17 +172,17 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
                           className="w-3 h-3 rounded-full border border-white/20 inline-block"
                           style={{ backgroundColor: proyecto.colorHex || '#CBD5E1' }}
                         />
-                        <span>{proyecto.color}</span>
+                        <span>{proyecto.color || '—'}</span>
                       </div>
                     </td>
                     <td className="p-2.5 text-center font-mono font-bold text-emerald-400 text-sm">
-                      {latestQuote?.cunetes5g ?? 15}
+                      {latestQuote?.cunetes5g ?? '—'}
                     </td>
                     <td className="p-2.5 text-center font-mono font-bold text-sky-400 text-sm">
-                      {latestQuote?.galones1g ?? 2}
+                      {latestQuote?.galones1g ?? '—'}
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-white">
-                      {latestQuote?.galonesExactos ?? 77} Gal
+                      {latestQuote?.galonesExactos != null ? `${latestQuote.galonesExactos} Gal` : '—'}
                     </td>
                   </tr>
                 </tbody>
@@ -182,19 +190,21 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
             </div>
           </div>
 
-          {/* Quality & Security Disclaimer */}
-          <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg flex items-center justify-between text-[11px] text-slate-400">
-            <div className="flex items-center gap-2">
+          {!latestQuote && (
+            <p className="text-[11px] text-amber-300">Este proyecto no tiene cotización registrada: las cantidades no están disponibles.</p>
+          )}
+
+          {/* Dictamen de calidad (solo si existe) */}
+          {proyecto.diagnostico?.aprobadoCalidad != null && (
+            <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg flex items-center gap-2 text-[11px] text-slate-400">
               <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               <span>
-                Producto revisado bajo norma NTC 1335. Sustrato verificado por perito: Humedad {proyecto.diagnostico?.humedadRelativa || '8.2'}%.
+                Dictamen de calidad: {proyecto.diagnostico.aprobadoCalidad ? 'aprobado' : 'no aprobado'}
+                {proyecto.diagnostico.peritoNombre ? ` por ${proyecto.diagnostico.peritoNombre}` : ''}
+                {proyecto.diagnostico.humedadRelativa != null ? ` • Humedad del sustrato: ${proyecto.diagnostico.humedadRelativa}%` : ''}
               </span>
             </div>
-            <div className="flex items-center gap-1 font-mono text-emerald-400">
-              <QrCode className="w-4 h-4" />
-              <span>QR-VERIFIED</span>
-            </div>
-          </div>
+          )}
 
           {/* Receiver Sign / Delivery Form */}
           {!isDelivered ? (
@@ -215,6 +225,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
                   <input
                     type="text"
                     required
+                    placeholder="Ej: Residente de obra"
                     value={recibidoPor}
                     onChange={(e) => setRecibidoPor(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -223,11 +234,11 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
 
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Cédula / Documento de Identidad
+                    Cédula / Documento de Identidad (opcional)
                   </label>
                   <input
                     type="text"
-                    required
+                    placeholder="Opcional"
                     value={docRecibe}
                     onChange={(e) => setDocRecibe(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
@@ -237,10 +248,11 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                disabled={saving || !d}
+                className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                Confirmar Entrega en Obra y Emitir Remisión
+                {saving ? 'Confirmando…' : 'Confirmar Entrega en Obra'}
               </button>
             </form>
           ) : (
@@ -250,12 +262,12 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
                 <div>
                   <span className="font-bold text-white block">ENTREGA COMPLETADA A CONFORMIDAD</span>
                   <span className="text-[11px] text-slate-300">
-                    Recibido por: <strong>{proyecto.despacho?.recibidoPor}</strong> (Doc: {proyecto.despacho?.documentoRecibe})
+                    Recibido por: <strong>{dash(d?.recibidoPor)}</strong>{d?.documentoRecibe ? ` (Doc: ${d.documentoRecibe})` : ''}
                   </span>
                 </div>
               </div>
               <span className="font-mono text-emerald-400 text-[11px]">
-                {proyecto.despacho?.fechaEntrega ? new Date(proyecto.despacho.fechaEntrega).toLocaleDateString('es-CO') : 'Firmado'}
+                {fmtFecha(d?.fechaEntrega)}
               </span>
             </div>
           )}

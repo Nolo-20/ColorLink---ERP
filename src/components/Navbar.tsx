@@ -19,7 +19,8 @@ import {
   Moon,
   X,
   ShoppingBag,
-  ExternalLink
+  Users,
+  Info
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -42,7 +43,8 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
     setSelectedProyecto,
     setSelectedPedido,
     setSearchQuery,
-    setProfileModalOpen
+    setProfileModalOpen,
+    hasModuleAccess
   } = useApp();
 
   const [searchInput, setSearchInput] = useState<string>('');
@@ -66,16 +68,21 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
   // Real-time search query matching
   const query = searchInput.trim().toLowerCase();
 
-  const matchedProjects = query
+  // Solo se buscan módulos que el rol puede abrir
+  const canProjects = hasModuleAccess('proyectos');
+  const canOrders = hasModuleAccess('pedidos');
+  const canInventory = hasModuleAccess('inventarios');
+
+  const matchedProjects = query && canProjects
     ? proyectos.filter(p => 
-        p.nombreProyecto.toLowerCase().includes(query) ||
-        p.empresa?.razonSocial.toLowerCase().includes(query) ||
+        (p.nombreProyecto || '').toLowerCase().includes(query) ||
+        (p.empresa?.razonSocial || '').toLowerCase().includes(query) ||
         (p.color && p.color.toLowerCase().includes(query)) ||
         (p.despacho?.numeroGuia && p.despacho.numeroGuia.toLowerCase().includes(query))
       ).slice(0, 4)
     : [];
 
-  const matchedOrders = query
+  const matchedOrders = query && canOrders
     ? pedidos.filter(p => 
         p.pedidoId.toLowerCase().includes(query) ||
         p.clienteNombre.toLowerCase().includes(query) ||
@@ -84,7 +91,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
       ).slice(0, 4)
     : [];
 
-  const matchedProducts = query
+  const matchedProducts = query && canInventory
     ? productos.filter(p => 
         p.nombre.toLowerCase().includes(query) ||
         (p.codigoColorLink && p.codigoColorLink.toLowerCase().includes(query)) ||
@@ -92,7 +99,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
       ).slice(0, 4)
     : [];
 
-  const matchedLots = query
+  const matchedLots = query && canInventory
     ? inventarios.filter(inv =>
         (inv.numeroLote && inv.numeroLote.toLowerCase().includes(query)) ||
         (inv.nombreBodega && inv.nombreBodega.toLowerCase().includes(query))
@@ -161,111 +168,25 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
       case 'despachos': return { title: 'Módulo de Despachos', icon: Truck };
       case 'pedidos': return { title: 'Pedidos & Retiro Tienda', icon: ShoppingBag };
       case 'reportes': return { title: 'Reportes & Métricas', icon: BarChart3 };
+      case 'canje_sucursal': return { title: 'Canje de Retiro en Sucursal', icon: ShoppingBag };
+      case 'colaboradores': return { title: 'Gestión de Empleados', icon: Users };
+      case 'roles_permisos': return { title: 'Matriz de Roles & Estados', icon: Info };
       default: return { title: 'Panel Principal', icon: Home };
     }
   };
 
+  const clearSearch = () => {
+    setSearchInput('');
+    setSearchQuery('');
+  };
+
+  const searchPlaceholder = 'Buscar obras, clientes, pedidos RET, cuñetes, lotes... (Enter para ir)';
+
   const moduleInfo = getModuleTitle();
   const ModuleIcon = moduleInfo.icon;
 
-  return (
-    <header className={`sticky top-0 z-30 w-full backdrop-blur-md border-b transition-colors ${
-      theme === 'light' 
-        ? 'bg-white/95 border-slate-200 text-slate-800 shadow-sm' 
-        : 'bg-[#071120]/95 border-slate-800 text-white'
-    }`}>
-      <div className="px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-        
-        {/* Left: Sidebar Toggle + Breadcrumb or "Volver a Inicio" button */}
-        <div className="flex items-center gap-3">
-          {onToggleSidebar && (
-            <button
-              onClick={onToggleSidebar}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                theme === 'light' 
-                  ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-100' 
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-              title="Alternar Menú Lateral"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-          )}
-
-          {activeTab !== 'inicio' ? (
-            <button
-              onClick={() => setActiveTab('inicio')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-colors cursor-pointer border shadow-sm ${
-                theme === 'light'
-                  ? 'bg-slate-100 hover:bg-slate-200 text-emerald-600 border-slate-200'
-                  : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 border-slate-700'
-              }`}
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Volver al Panel</span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 text-xs font-medium">
-              <Home className="w-4 h-4 text-emerald-500" />
-              <span className={`font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>Panel Principal</span>
-              <span className={theme === 'light' ? 'text-slate-400' : 'text-slate-500'}>•</span>
-              <span className={theme === 'light' ? 'text-slate-500' : 'text-slate-400'}>ColorLink ERP</span>
-            </div>
-          )}
-
-          {activeTab !== 'inicio' && (
-            <div className={`hidden sm:flex items-center gap-2 text-xs pl-2 border-l ${
-              theme === 'light' ? 'border-slate-200' : 'border-slate-800'
-            }`}>
-              <ModuleIcon className={`w-4 h-4 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`} />
-              <span className={`font-bold ${theme === 'light' ? 'text-slate-800' : 'text-slate-200'}`}>{moduleInfo.title}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Center: FUNCTIONAL Search Box with live dropdown results */}
-        <div ref={searchRef} className="hidden md:flex items-center flex-1 max-w-md mx-4 relative">
-          <div className="relative w-full">
-            <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${
-              theme === 'light' ? 'text-slate-400' : 'text-slate-400'
-            }`} />
-            
-            <input
-              type="text"
-              value={searchInput}
-              onFocus={() => setIsSearchOpen(true)}
-              onKeyDown={handleKeyDown}
-              onChange={(e) => {
-                setSearchInput(e.target.value);
-                setSearchQuery(e.target.value);
-                setIsSearchOpen(true);
-              }}
-              placeholder="Buscar obras, clientes, pedidos RET, cuñetes, lotes... (Enter para ir)"
-              className={`w-full rounded-xl pl-9 pr-8 py-2 text-xs transition-colors focus:outline-none focus:border-emerald-500 ${
-                theme === 'light'
-                  ? 'bg-slate-100 border border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white'
-                  : 'bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:bg-slate-950'
-              }`}
-            />
-
-            {searchInput && (
-              <button
-                onClick={() => setSearchInput('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Live Search Results Dropdown Popover */}
-          {isSearchOpen && query.length > 0 && (
-            <div className={`absolute top-full left-0 right-0 mt-2 rounded-2xl shadow-2xl border p-3 z-50 max-h-[420px] overflow-y-auto space-y-3 ${
-              theme === 'light'
-                ? 'bg-white border-slate-200 text-slate-900'
-                : 'bg-[#0b172a] border-slate-700 text-white'
-            }`}>
-              
+  const resultsContent = (
+    <>
               {totalResults === 0 ? (
                 <div className="p-4 text-center text-xs text-slate-400">
                   No se encontraron coincidencias para "<span className="font-bold text-emerald-500">{searchInput}</span>".
@@ -414,6 +335,109 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
                   )}
                 </>
               )}
+    </>
+  );
+
+  return (
+    <header className={`sticky top-0 z-30 w-full backdrop-blur-md border-b transition-colors ${
+      theme === 'light' 
+        ? 'bg-white/95 border-slate-200 text-slate-800 shadow-sm' 
+        : 'bg-[#071120]/95 border-slate-800 text-white'
+    }`}>
+      <div className="px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+        
+        {/* Left: Sidebar Toggle + Breadcrumb or "Volver a Inicio" button */}
+        <div className="flex items-center gap-3">
+          {onToggleSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                theme === 'light' 
+                  ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-100' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+              title="Alternar Menú Lateral"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
+
+          {activeTab !== 'inicio' ? (
+            <button
+              onClick={() => setActiveTab('inicio')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-colors cursor-pointer border shadow-sm ${
+                theme === 'light'
+                  ? 'bg-slate-100 hover:bg-slate-200 text-emerald-600 border-slate-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 border-slate-700'
+              }`}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Volver al Panel</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <Home className="w-4 h-4 text-emerald-500" />
+              <span className={`font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>Panel Principal</span>
+              <span className={theme === 'light' ? 'text-slate-400' : 'text-slate-500'}>•</span>
+              <span className={theme === 'light' ? 'text-slate-500' : 'text-slate-400'}>ColorLink ERP</span>
+            </div>
+          )}
+
+          {activeTab !== 'inicio' && (
+            <div className={`hidden sm:flex items-center gap-2 text-xs pl-2 border-l ${
+              theme === 'light' ? 'border-slate-200' : 'border-slate-800'
+            }`}>
+              <ModuleIcon className={`w-4 h-4 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`} />
+              <span className={`font-bold ${theme === 'light' ? 'text-slate-800' : 'text-slate-200'}`}>{moduleInfo.title}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Center: FUNCTIONAL Search Box with live dropdown results */}
+        <div ref={searchRef} className="hidden md:flex items-center flex-1 max-w-md mx-4 relative">
+          <div className="relative w-full">
+            <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${
+              theme === 'light' ? 'text-slate-400' : 'text-slate-400'
+            }`} />
+            
+            <input
+              type="text"
+              value={searchInput}
+              onFocus={() => setIsSearchOpen(true)}
+              onKeyDown={handleKeyDown}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                setSearchQuery(e.target.value);
+                setIsSearchOpen(true);
+              }}
+              placeholder={searchPlaceholder}
+              className={`w-full rounded-xl pl-9 pr-8 py-2 text-xs transition-colors focus:outline-none focus:border-emerald-500 ${
+                theme === 'light'
+                  ? 'bg-slate-100 border border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white'
+                  : 'bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:bg-slate-950'
+              }`}
+            />
+
+            {searchInput && (
+              <button
+                onClick={clearSearch}
+                aria-label="Limpiar búsqueda"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Live Search Results Dropdown Popover */}
+          {isSearchOpen && query.length > 0 && (
+            <div className={`absolute top-full left-0 right-0 mt-2 rounded-2xl shadow-2xl border p-3 z-50 max-h-[420px] overflow-y-auto space-y-3 ${
+              theme === 'light'
+                ? 'bg-white border-slate-200 text-slate-900'
+                : 'bg-[#0b172a] border-slate-700 text-white'
+            }`}>
+              
+              {resultsContent}
             </div>
           )}
         </div>
@@ -489,6 +513,47 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
           </button>
         </div>
       </div>
+
+      {/* Mobile search panel */}
+      {mobileSearchOpen && (
+        <div className={`md:hidden px-4 pb-3 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-800'}`}>
+          <div className="relative mt-3">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              autoFocus
+              value={searchInput}
+              onKeyDown={handleKeyDown}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                setSearchQuery(e.target.value);
+              }}
+              placeholder={searchPlaceholder}
+              className={`w-full rounded-xl pl-9 pr-8 py-2 text-xs focus:outline-none focus:border-emerald-500 ${
+                theme === 'light'
+                  ? 'bg-slate-100 border border-slate-200 text-slate-900 placeholder-slate-400'
+                  : 'bg-slate-900 border border-slate-800 text-white placeholder-slate-500'
+              }`}
+            />
+            {searchInput && (
+              <button
+                onClick={clearSearch}
+                aria-label="Limpiar búsqueda"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {query.length > 0 && (
+            <div className={`mt-2 rounded-2xl border p-3 max-h-[60vh] overflow-y-auto space-y-3 ${
+              theme === 'light' ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
+            }`}>
+              {resultsContent}
+            </div>
+          )}
+        </div>
+      )}
     </header>
   );
 };

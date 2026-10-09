@@ -268,7 +268,20 @@ export function mapProyecto(raw: any): Proyecto {
     cotizaciones: (raw.cotizaciones || []).map(mapCotizacion),
     despacho: raw.despacho ? mapDespacho(raw.despacho) : undefined,
     historialMovimientos: (raw.historial || []).map(mapMovimiento),
-    historialAsesores: [],
+    // Los escalamientos quedan en el historial como "Escalado a asesor <Nombre>. Motivo: …"
+    historialAsesores: (raw.historial || [])
+      .filter((h: any) => typeof h.comentario === 'string' && h.comentario.startsWith('Escalado a asesor'))
+      .map((h: any) => {
+        const m = /^Escalado a asesor (.+?)\.(?: Motivo: (.*))?$/s.exec(h.comentario) || [];
+        return {
+          asesorId: '',
+          asesorNombre: m[1] || 'Asesor',
+          asesorEmail: '',
+          fechaAsignacion: h.fecha,
+          motivo: m[2] || undefined,
+          asignadoPor: h.usuarioNombre || '',
+        };
+      }),
   };
 }
 

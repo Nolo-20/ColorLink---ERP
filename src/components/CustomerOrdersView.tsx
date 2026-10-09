@@ -20,15 +20,19 @@ export const CustomerOrdersView: React.FC = () => {
   const { proyectos, despacharProyecto, theme } = useApp();
   const isLight = theme === 'light';
 
-  const [receiptProject, setReceiptProject] = useState<Proyecto | null>(null);
-  const [assignDispatchModal, setAssignDispatchModal] = useState<Proyecto | null>(null);
+  // Se guardan solo los ids: el proyecto se lee siempre de la lista viva del contexto
+  const [receiptId, setReceiptId] = useState<string | null>(null);
+  const [assignId, setAssignId] = useState<string | null>(null);
+  const receiptProject = receiptId ? proyectos.find(p => p.proyectoId === receiptId) || null : null;
+  const assignDispatchModal = assignId ? proyectos.find(p => p.proyectoId === assignId) || null : null;
+  const [dispatching, setDispatching] = useState(false);
 
   // Dispatch assignment form
   const [driverName, setDriverName] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [transportCompany, setTransportCompany] = useState('');
-  const [transitHours, setTransitHours] = useState(2);
+  const [transitHours, setTransitHours] = useState<string>('');
 
   const dispatchableProjects = proyectos.filter(p => 
     p.estadoPipeline === 'aprobado_calidad' ||
@@ -36,24 +40,34 @@ export const CustomerOrdersView: React.FC = () => {
   );
 
   const handleOpenAssignModal = (p: Proyecto) => {
-    setAssignDispatchModal(p);
+    // Formulario limpio para cada proyecto
+    setDriverName('');
+    setDriverPhone('');
+    setVehiclePlate('');
+    setTransportCompany('');
+    setTransitHours('');
+    setAssignId(p.proyectoId);
   };
 
   const handleConfirmDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!assignDispatchModal) return;
+    if (!assignDispatchModal || dispatching) return;
 
-    const ok = await despacharProyecto(assignDispatchModal.proyectoId, {
-      conductorNombre: driverName,
-      conductorTelefono: driverPhone,
-      placaVehiculo: vehiclePlate,
-      transportador: transportCompany,
-      tiempoEstimadoHoras: Number(transitHours),
-      direccionEntrega: assignDispatchModal.empresa?.direccionDespacho,
-      ciudadEntrega: assignDispatchModal.empresa?.ciudad?.ciudad,
-    });
-
-    if (ok) setAssignDispatchModal(null);
+    setDispatching(true);
+    try {
+      const ok = await despacharProyecto(assignDispatchModal.proyectoId, {
+        conductorNombre: driverName.trim(),
+        conductorTelefono: driverPhone.trim(),
+        placaVehiculo: vehiclePlate.trim(),
+        transportador: transportCompany.trim(),
+        tiempoEstimadoHoras: Number(transitHours),
+        direccionEntrega: assignDispatchModal.empresa?.direccionDespacho,
+        ciudadEntrega: assignDispatchModal.empresa?.ciudad?.ciudad,
+      });
+      if (ok) setAssignId(null);
+    } finally {
+      setDispatching(false);
+    }
   };
 
   return (
@@ -78,10 +92,13 @@ export const CustomerOrdersView: React.FC = () => {
         <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs border ${
           isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'
         }`}>
-          <Navigation className="w-4 h-4 text-emerald-500 animate-pulse" />
+          <Navigation className="w-4 h-4 text-emerald-500" />
           <div>
-            <span className={`block text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Ruta Activa Hoy:</span>
-            <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Medellín • Itagüí • Envigado • Bello</span>
+            <span className={`block text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Despachos en curso:</span>
+            <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              {dispatchableProjects.filter(p => p.estadoPipeline === 'aprobado_calidad').length} por despachar •{' '}
+              {dispatchableProjects.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length} en ruta
+            </span>
           </div>
         </div>
       </div>
@@ -154,7 +171,7 @@ export const CustomerOrdersView: React.FC = () => {
 
                   <div className={`flex items-center gap-1.5 text-xs mb-3 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                     <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="truncate">{p.empresa?.razonSocial}</span>
+                    <span className="truncate">{p.empresa?.razonSocial || '—'}</span>
                   </div>
 
                   {/* Destination & Volume */}
@@ -164,7 +181,8 @@ export const CustomerOrdersView: React.FC = () => {
                     <div className={`flex items-start gap-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                       <MapPin className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-0.5" />
                       <span className="line-clamp-2">
-                        {p.empresa?.direccionDespacho} ({p.empresa?.ciudad?.ciudad || 'Medellín'})
+                        {(d?.direccionEntrega || p.empresa?.direccionDespacho) || 'Sin dirección registrada'}
+                        {(d?.ciudadEntrega || p.empresa?.ciudad?.ciudad) ? ` (${d?.ciudadEntrega || p.empresa?.ciudad?.ciudad})` : ''}
                       </span>
                     </div>
 
@@ -173,7 +191,9 @@ export const CustomerOrdersView: React.FC = () => {
                     }`}>
                       <span>Carga en Obra:</span>
                       <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                        {latestQuote?.cunetes5g ?? 15} Cuñetes (5G) + {latestQuote?.galones1g ?? 2} Gal (1G)
+                        {latestQuote
+                          ? `${latestQuote.cunetes5g ?? 0} Cuñetes (5G) + ${latestQuote.galones1g ?? 0} Gal (1G)`
+                          : 'Sin cotización'}
                       </span>
                     </div>
                   </div>
@@ -185,15 +205,15 @@ export const CustomerOrdersView: React.FC = () => {
                     }`}>
                       <div className="flex justify-between">
                         <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>Vehículo:</span>
-                        <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{d.placaVehiculo}</span>
+                        <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{d.placaVehiculo || '—'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>Conductor:</span>
-                        <span className={isLight ? 'text-slate-800' : 'text-slate-200'}>{d.conductorNombre}</span>
+                        <span className={isLight ? 'text-slate-800' : 'text-slate-200'}>{d.conductorNombre || '—'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>Contacto:</span>
-                        <span className="font-mono">{d.conductorTelefono}</span>
+                        <span className="font-mono">{d.conductorTelefono || '—'}</span>
                       </div>
                     </div>
                   )}
@@ -211,11 +231,11 @@ export const CustomerOrdersView: React.FC = () => {
                     </button>
                   ) : (
                     <button
-                      onClick={() => setReceiptProject(p)}
+                      onClick={() => setReceiptId(p.proyectoId)}
                       className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      <span>Ver Remisión Oficial & Firmar</span>
+                      <span>{isDelivered ? 'Ver Remisión' : 'Ver Remisión & Confirmar Entrega'}</span>
                     </button>
                   )}
                 </div>
@@ -266,7 +286,7 @@ export const CustomerOrdersView: React.FC = () => {
                     min={1}
                     max={12}
                     value={transitHours}
-                    onChange={(e) => setTransitHours(Number(e.target.value))}
+                    onChange={(e) => setTransitHours(e.target.value)}
                     className={`w-full rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-emerald-500 border ${
                       isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
                     }`}
@@ -322,7 +342,7 @@ export const CustomerOrdersView: React.FC = () => {
               <div className="flex items-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setAssignDispatchModal(null)}
+                  onClick={() => setAssignId(null)}
                   className={`flex-1 py-2.5 font-semibold rounded-lg transition-colors cursor-pointer border ${
                     isLight 
                       ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200' 
@@ -333,10 +353,11 @@ export const CustomerOrdersView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  disabled={dispatching}
+                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  Poner en Ruta
+                  {dispatching ? 'Despachando…' : 'Poner en Ruta'}
                 </button>
               </div>
             </form>
@@ -347,8 +368,9 @@ export const CustomerOrdersView: React.FC = () => {
       {/* RECEIPT MODAL */}
       {receiptProject && (
         <PickupReceiptModal
+          key={receiptProject.proyectoId}
           proyecto={receiptProject}
-          onClose={() => setReceiptProject(null)}
+          onClose={() => setReceiptId(null)}
         />
       )}
     </div>
