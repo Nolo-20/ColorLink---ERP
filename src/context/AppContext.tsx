@@ -169,6 +169,12 @@ interface AppContextType {
   cambiarEstadoPedido: (pedidoId: string, nuevoEstado: EstadoPedido, notas?: string) => Promise<boolean>;
   canjearCodigoRetiro: (codigo: string) => Promise<ResultadoCanje>;
 
+  // Conversación con el cliente: mensajes del cliente sin leer por proyecto
+  mensajesSinLeer: Record<string, number>;
+  refreshMensajesSinLeer: () => Promise<void>;
+  /** Pone en 0 el contador local de ese proyecto (el backend los marca leídos al abrir la conversación). */
+  marcarConversacionLeida: (proyectoId: string) => void;
+
   toastMessage: string | null;
   toastKind: ToastKind;
   /** kind 'error' pinta el aviso en rojo; por defecto se infiere del texto ("No se pudo…" = error). */
@@ -180,6 +186,8 @@ export type ToastKind = 'ok' | 'error';
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const POLL_MS = 60_000;
+const UNREAD_POLL_MS = 20_000;
+const ROLES_CON_MENSAJES = ['administrador', 'asesor', 'calidad', 'despachos'];
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<Usuario | null>(null);
@@ -192,6 +200,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [ciudades, setCiudades] = useState<Ciudad[]>([]);
   const [pedidos, setPedidos] = useState<PedidoTienda[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
+  const [mensajesSinLeer, setMensajesSinLeer] = useState<Record<string, number>>({});
 
   const [selectedPedido, setSelectedPedido] = useState<PedidoTienda | null>(null);
   const [selectedProyecto, setSelectedProyecto] = useState<Proyecto | null>(null);
@@ -300,6 +309,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
+  const loadUnread = useCallback(async (role: string) => {
+    if (!ROLES_CON_MENSAJES.includes(role)) {
+      setMensajesSinLeer({});
+      return;
+    }
+    const r = await api.getUnreadMessages();
+    const next: Record<string, number> = {};
+    (r.unread || []).forEach((u: any) => {
+      const n = Number(u.sinLeer) || 0;
+      if (u.proyectoId && n > 0) next[u.proyectoId] = n;
+    });
+    setMensajesSinLeer(next);
+  }, []);
+
   const loadAll = useCallback(async (role: string, silent: boolean) => {
     if (!silent) setDataLoading(true);
     const results = await Promise.allSettled([
@@ -308,6 +331,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       loadInventory(),
       loadCities(),
       loadStaff(role),
+      loadUnread(role),
     ]);
     if (!silent) setDataLoading(false);
 
@@ -318,7 +342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else if (failed.length > 0 && !silent) {
       showToast(handleApiError(failed[0].reason, 'No se pudieron cargar algunos datos del servidor.'));
     }
-  }, [loadProjects, loadOrders, loadInventory, loadCities, loadStaff, handleApiError, showToast]);
+  }, [loadProjects, loadOrders, loadInventory, loadCities, loadStaff, loadUnread, handleApiError, showToast]);
 
   const refreshData = useCallback(async () => {
     if (roleApi) await loadAll(roleApi, false);
@@ -355,6 +379,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       window.removeEventListener('focus', onFocus);
     };
   }, [currentUser?.usuarioId, roleApi, loadAll]);
+
+  // Sondeo liviano (solo contadores de mensajes) más frecuente que la recarga completa
+  useEffect(() => {
+    if (!currentUser || !roleApi || !ROLES_CON_MENSAJES.includes(roleApi)) return;
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadUnread(roleApi).catch(err => {
+          if (err instanceof ApiError && err.status === 401) showToast(handleApiError(err, ''));
+        });
+      }
+    }, UNREAD_POLL_MS);
+    return () => clearInterval(id);
+  }, [currentUser?.usuarioId, roleApi, loadUnread, handleApiError, showToast]);
+
+  const refreshMensajesSinLeer = useCallback(async () => {
+    if (!roleApi) return;
+    try {
+      await loadUnread(roleApi);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) showToast(handleApiError(err, ''));
+    }
+  }, [roleApi, loadUnread, handleApiError, showToast]);
+
+  const marcarConversacionLeida = useCallback((proyectoId: string) => {
+    setMensajesSinLeer(prev => {
+      if (!prev[proyectoId]) return prev;
+      const next = { ...prev };
+      delete next[proyectoId];
+      return next;
+    });
+  }, []);
 
   const hasModuleAccess = (tab: TabType, role?: UserRole): boolean => {
     const userRole = role || currentUser?.rol.rol;
@@ -397,6 +452,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProyectos([]);
     setPedidos([]);
     setUsuarios([]);
+    setMensajesSinLeer({});
     setActiveTabRaw('inicio');
     showToast('Sesión cerrada correctamente');
   };
@@ -696,6 +752,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         actualizarStockInventario, agregarEntradaInventario,
         crearUsuario, actualizarEmpleado, actualizarPerfilUsuario,
         cambiarEstadoPedido, canjearCodigoRetiro,
+        mensajesSinLeer, refreshMensajesSinLeer, marcarConversacionLeida,
         toastMessage, toastKind, showToast,
       }}
     >

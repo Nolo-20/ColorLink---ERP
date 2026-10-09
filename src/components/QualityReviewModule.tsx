@@ -13,8 +13,10 @@ import {
   Building2, 
   Clock, 
   Sparkles,
-  Award
+  Award,
+  MessageSquare
 } from 'lucide-react';
+import { ProjectChatPanel } from './ProjectChatPanel';
 
 export const QualityReviewModule: React.FC = () => {
   const { 
@@ -26,6 +28,7 @@ export const QualityReviewModule: React.FC = () => {
     selectedProyecto, 
     setSelectedProyecto, 
     showToast,
+    mensajesSinLeer,
     theme
   } = useApp();
 
@@ -181,6 +184,7 @@ export const QualityReviewModule: React.FC = () => {
               const isSelected = activeProject?.proyectoId === p.proyectoId;
               const isPending = p.estadoPipeline === 'en_peritaje';
               const diag = p.diagnostico;
+              const sinLeer = mensajesSinLeer[p.proyectoId] || 0;
 
               return (
                 <div
@@ -212,15 +216,26 @@ export const QualityReviewModule: React.FC = () => {
                       </span>
                     )}
 
-                    {diag?.aprobadoCalidad ? (
-                      <span className="text-[10px] font-semibold text-emerald-500 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Aprobado
-                      </span>
-                    ) : diag?.fechaVeredicto ? (
-                      <span className="text-[10px] font-semibold text-rose-500 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" /> Con Reparos
-                      </span>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {sinLeer > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-rose-500 text-white shadow-sm shadow-rose-500/30"
+                          title={`${sinLeer} ${sinLeer === 1 ? 'mensaje nuevo' : 'mensajes nuevos'} del cliente`}
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          {sinLeer > 99 ? '99+' : sinLeer}
+                        </span>
+                      )}
+                      {diag?.aprobadoCalidad ? (
+                        <span className="text-[10px] font-semibold text-emerald-500 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Aprobado
+                        </span>
+                      ) : diag?.fechaVeredicto ? (
+                        <span className="text-[10px] font-semibold text-rose-500 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> Con Reparos
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <h4 className={`text-sm font-bold leading-snug line-clamp-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
@@ -492,6 +507,24 @@ export const QualityReviewModule: React.FC = () => {
                   <p className="pt-2 text-xs text-slate-400">Solo el Perito de Calidad o un Administrador puede emitir el dictamen.</p>
                 )}
               </div>
+            </div>
+
+            {/* Conversación con el cliente (versión compacta) */}
+            <div className={`border rounded-2xl p-5 shadow-sm space-y-3 transition-all ${
+              isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#091526] border-slate-800 text-white shadow-xl'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-500 flex items-center justify-center">
+                  <MessageSquare className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h4 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Conversación con el cliente</h4>
+                  <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Coordina visitas o aclara dudas técnicas directamente con el cliente.
+                  </p>
+                </div>
+              </div>
+              <ProjectChatPanel proyecto={activeProject} isLight={isLight} compact />
             </div>
           </div>
         ) : (

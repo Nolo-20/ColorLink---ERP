@@ -172,16 +172,31 @@ function mapCotizacion(raw: any): Cotizacion {
     total: it.total ?? 0,
     unidadMedida: it.producto?.presentacion === 'cunete_5gal' ? 'cuñete_5g' : 'galon_1g',
   }));
+  const num = (v: any): number | undefined => (v == null || v === '' || !Number.isFinite(Number(v)) ? undefined : Number(v));
+  const cunetes5g = num(raw.cunetes5g);
+  const galones1g = num(raw.galones1g);
+  const total = num(raw.total);
+  // Las cotizaciones que vienen del estimado web del cliente solo traen cuñetes/galones y el total con IVA
+  let galonesExactos = num(raw.galonesExactos);
+  if (galonesExactos === undefined && cunetes5g !== undefined && galones1g !== undefined) {
+    galonesExactos = cunetes5g * 5 + galones1g;
+  }
+  let subtotal = num(raw.subtotal);
+  let iva = num(raw.iva);
+  if (subtotal === undefined && total !== undefined) {
+    subtotal = Math.round(total / 1.19);
+    iva = total - subtotal;
+  }
   return {
     cotizacionId: raw.cotizacionId,
     proyectoId: raw.proyectoId,
     diagnosticoId: raw.diagnosticoId || undefined,
-    galonesExactos: raw.galonesExactos ?? undefined,
-    cunetes5g: raw.cunetes5g ?? undefined,
-    galones1g: raw.galones1g ?? undefined,
-    subtotal: raw.subtotal ?? undefined,
-    iva: raw.iva ?? undefined,
-    total: raw.total ?? undefined,
+    galonesExactos,
+    cunetes5g,
+    galones1g,
+    subtotal,
+    iva,
+    total,
     estado: raw.estado || undefined,
     createdAt: raw.createdAt,
     items,

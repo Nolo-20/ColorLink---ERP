@@ -19,7 +19,8 @@ import {
   ShoppingBag, 
   Info,
   Users,
-  User
+  User,
+  MessageSquare
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -39,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
     logout, 
     setCalculatorModalOpen,
     setProfileModalOpen,
+    mensajesSinLeer,
     theme
   } = useApp();
 
@@ -49,7 +51,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
   const inTransit = proyectos.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length;
   const pendingPickup = pedidos.filter(p => p.estadoPedido === 'listo_sucursal').length;
 
-  const menuItems: { id: TabType; label: string; icon: React.ElementType; badge?: string | number; badgeColor?: string }[] = [
+  // Mensajes de clientes sin leer: se muestran en Proyectos (o en Calidad para el perito, que no tiene Proyectos)
+  const totalSinLeer = Object.values(mensajesSinLeer).reduce((acc, n) => acc + (n || 0), 0);
+  const tabMensajes: TabType | null = hasModuleAccess('proyectos') ? 'proyectos' : hasModuleAccess('calidad') ? 'calidad' : null;
+
+  const menuItems: { id: TabType; label: string; icon: React.ElementType; badge?: string | number; badgeColor?: string; unread?: number }[] = [
     { id: 'inicio', label: 'Inicio / Panel Principal', icon: Home },
     { id: 'pedidos', label: 'Pedidos & Retiro Tienda', icon: ShoppingBag, badge: pendingPickup > 0 ? `${pendingPickup} Retiro` : pedidos.length, badgeColor: pendingPickup > 0 ? 'bg-amber-500 text-slate-950 font-bold' : undefined },
     { id: 'proyectos', label: 'Proyectos & Cotizaciones', icon: Layers, badge: proyectos.length },
@@ -61,6 +67,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
     { id: 'colaboradores', label: 'Gestión de Empleados', icon: Users, badge: usuarios.length },
     { id: 'roles_permisos', label: 'Matriz de Roles & Estados', icon: Info },
   ];
+
+  if (tabMensajes && totalSinLeer > 0) {
+    const item = menuItems.find(i => i.id === tabMensajes);
+    if (item) item.unread = totalSinLeer;
+  }
 
   // Filter based on employee role permissions
   const visibleItems = menuItems.filter(item => item.id === 'inicio' || hasModuleAccess(item.id));
@@ -164,6 +175,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
                 
                 {!collapsed && (
                   <span className="truncate flex-1 text-left">{item.label}</span>
+                )}
+
+                {!!item.unread && (
+                  <span
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-rose-500 text-white shadow-sm shadow-rose-500/30 ${
+                      collapsed ? 'absolute -top-1 -left-1' : ''
+                    }`}
+                    title={`${item.unread} ${item.unread === 1 ? 'mensaje nuevo' : 'mensajes nuevos'} de clientes`}
+                    aria-label={`${item.unread} mensajes de clientes sin leer`}
+                  >
+                    <MessageSquare className="w-2.5 h-2.5" />
+                    {item.unread > 99 ? '99+' : item.unread}
+                  </span>
                 )}
 
                 {item.badge !== undefined && (

@@ -16,8 +16,10 @@ import {
   UserPlus,
   RefreshCw,
   Sparkles,
-  User
+  User,
+  MessageSquare
 } from 'lucide-react';
+import { ProjectChatPanel } from './ProjectChatPanel';
 
 export const AdvisorProjectManager: React.FC = () => {
   const { 
@@ -34,6 +36,7 @@ export const AdvisorProjectManager: React.FC = () => {
     showToast,
     setEscalateModalOpen,
     setProjectToEscalate,
+    mensajesSinLeer,
     theme
   } = useApp();
 
@@ -200,6 +203,7 @@ export const AdvisorProjectManager: React.FC = () => {
           <div className="space-y-2.5 max-h-[750px] overflow-y-auto pr-1">
             {proyectos.map((p) => {
               const isSelected = activeProject?.proyectoId === p.proyectoId;
+              const sinLeer = mensajesSinLeer[p.proyectoId] || 0;
               return (
                 <div
                   key={p.proyectoId}
@@ -220,9 +224,21 @@ export const AdvisorProjectManager: React.FC = () => {
                     }`}>
                       {ESTADO_PROYECTO_LABEL[p.estadoPipeline]}
                     </span>
-                    <span className="text-[11px] font-mono text-emerald-500 font-bold">
-                      {p.area != null ? `${p.area} m²` : '—'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {sinLeer > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-rose-500 text-white shadow-sm shadow-rose-500/30"
+                          title={`${sinLeer} ${sinLeer === 1 ? 'mensaje nuevo' : 'mensajes nuevos'} del cliente`}
+                          data-testid="project-unread-badge"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          {sinLeer > 99 ? '99+' : sinLeer}
+                        </span>
+                      )}
+                      <span className="text-[11px] font-mono text-emerald-500 font-bold">
+                        {p.area != null ? `${p.area} m²` : '—'}
+                      </span>
+                    </div>
                   </div>
 
                   <h4 className={`text-sm font-bold leading-snug line-clamp-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
@@ -470,6 +486,28 @@ export const AdvisorProjectManager: React.FC = () => {
                   )
                 )}
               </div>
+            </div>
+
+            {/* Conversación con el cliente */}
+            <div className={`border rounded-2xl p-6 shadow-sm space-y-4 transition-all ${
+              isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#091526] border-slate-800 text-white shadow-xl'
+            }`}>
+              <div className={`flex items-center justify-between gap-3 border-b pb-4 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-500 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      Conversación con el cliente
+                    </h4>
+                    <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                      Mensajes con el cliente sobre esta obra. El cliente los ve en su cuenta de la tienda y recibe aviso por correo.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <ProjectChatPanel proyecto={activeProject} isLight={isLight} />
             </div>
 
             {/* Technical Quotation Engine (Calculadora de Cuñetes) */}

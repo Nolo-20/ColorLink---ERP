@@ -69,6 +69,13 @@ export const api = {
   confirmDelivery: (id: string, body: { recibidoPor: string; documentoRecibe?: string }) =>
     patch(`/api/projects/${id}/delivery`, body),
 
+  // ---------- Conversación cliente <-> equipo ----------
+  /** Al consultarla como equipo, el backend marca como leídos los mensajes del cliente. */
+  getProjectMessages: (id: string) => get(`/api/projects/${id}/messages`),
+  sendProjectMessage: (id: string, texto: string) => post(`/api/projects/${id}/messages`, { texto }),
+  /** Proyectos con mensajes del cliente sin leer: { unread: [{ proyectoId, sinLeer, ultimo }] }. */
+  getUnreadMessages: () => get('/api/messages/unread'),
+
   // ---------- Pedidos de la tienda ----------
   getAllOrders: () => get('/api/orders/all'),
   updateOrderStatus: (id: string, estado: string, comentario?: string) =>
