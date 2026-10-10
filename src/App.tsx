@@ -17,6 +17,7 @@ import { PickupRedeemScannerModal } from './components/PickupRedeemScannerModal'
 import { EmployeeManagementPanel } from './components/EmployeeManagementPanel';
 import { PaintCalculatorModal } from './components/PaintCalculatorModal';
 import { UserProfileModal } from './components/UserProfileModal';
+import { ReviewsModerationModule } from './components/ReviewsModerationModule';
 import { CheckCircle2, XCircle } from 'lucide-react';
 
 /** Aviso global: verde para confirmaciones, rojo para errores. */
@@ -107,6 +108,7 @@ const MainLayout: React.FC = () => {
           {activeTab === 'inventarios' && <InventoryModule />}
           {activeTab === 'despachos' && <CustomerOrdersView />}
           {activeTab === 'colaboradores' && <EmployeeManagementPanel />}
+          {activeTab === 'opiniones' && <ReviewsModerationModule />}
           {activeTab === 'reportes' && <RoleDashboard />}
           {activeTab === 'roles_permisos' && <RolePermissionGuideModal />}
         </main>

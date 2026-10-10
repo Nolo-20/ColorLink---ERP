@@ -115,4 +115,13 @@ export const api = {
     id: string,
     body: { nombre?: string; apellido?: string; telefono?: string; rol?: string; activo?: boolean; password?: string },
   ) => patch(`/api/admin/employees/${id}`, body),
+
+  // ---------- Opiniones de clientes (solo administrador) ----------
+  /** { resenas: [...], evaluaciones: [...] } — incluye las opiniones ocultas. */
+  getAdminReviews: () => get('/api/admin/reviews'),
+  /** Oculta o vuelve a publicar una opinión de producto en la tienda. */
+  setReviewVisibility: (id: string, visible: boolean) =>
+    patch(`/api/admin/reviews/${encodeURIComponent(id)}`, { visible }),
+  /** URL de la foto de una opinión (misma sesión por cookie; sirve también para las ocultas). */
+  reviewPhotoUrl: (id: string) => `/api/admin/reviews/${encodeURIComponent(id)}/photo`,
 };

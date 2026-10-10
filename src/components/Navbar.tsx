@@ -20,7 +20,8 @@ import {
   X,
   ShoppingBag,
   Users,
-  Info
+  Info,
+  MessageSquareText
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -174,6 +175,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
       case 'reportes': return { title: 'Reportes & Métricas', icon: BarChart3 };
       case 'canje_sucursal': return { title: 'Canje de Retiro en Sucursal', icon: ShoppingBag };
       case 'colaboradores': return { title: 'Gestión de Empleados', icon: Users };
+      case 'opiniones': return { title: 'Opiniones de Clientes', icon: MessageSquareText };
       case 'roles_permisos': return { title: 'Matriz de Roles & Estados', icon: Info };
       default: return { title: 'Panel Principal', icon: Home };
     }

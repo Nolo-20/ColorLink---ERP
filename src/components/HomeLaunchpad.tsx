@@ -21,7 +21,8 @@ import {
   FileText,
   UserCheck,
   Lock,
-  ShoppingBag
+  ShoppingBag,
+  MessageSquareText
 } from 'lucide-react';
 
 interface ModuleCardConfig {
@@ -165,6 +166,19 @@ export const HomeLaunchpad: React.FC = () => {
       iconBg: 'bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-slate-950',
       iconColor: 'text-emerald-400 group-hover:text-slate-950',
       icon: BarChart3,
+    },
+    {
+      id: 'opiniones',
+      title: 'Opiniones de Clientes',
+      subtitle: 'Moderación de la Tienda',
+      description: 'Revisa las opiniones de productos y las evaluaciones del vendedor; oculta o vuelve a publicar las que se muestran en la tienda.',
+      badge: 'Solo Administrador',
+      badgeColor: 'bg-rose-950/80 text-rose-300 border-rose-500/40',
+      cardBg: 'from-[#1f1118] to-[#130b10] hover:from-[#2a1620] hover:to-[#180e14]',
+      borderColor: 'border-rose-500/30 hover:border-rose-500/70',
+      iconBg: 'bg-rose-500/20 text-rose-400 group-hover:bg-rose-500 group-hover:text-slate-950',
+      iconColor: 'text-rose-400 group-hover:text-slate-950',
+      icon: MessageSquareText,
     },
     {
       id: 'roles_permisos',

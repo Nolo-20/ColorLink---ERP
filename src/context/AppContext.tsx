@@ -38,13 +38,14 @@ export type TabType =
   | 'pedidos'
   | 'canje_sucursal'
   | 'colaboradores'
+  | 'opiniones'
   | 'roles_permisos';
 
 /** Qué módulos ve cada rol. Lo que cada uno puede *hacer* lo decide el backend; esto solo ordena el menú. */
 export const ROLE_PERMISSIONS: Record<UserRole, TabType[]> = {
   'Administrador': [
     'inicio', 'proyectos', 'pedidos', 'canje_sucursal', 'pipeline', 'calidad',
-    'inventarios', 'despachos', 'colaboradores', 'reportes', 'roles_permisos',
+    'inventarios', 'despachos', 'colaboradores', 'opiniones', 'reportes', 'roles_permisos',
   ],
   'Asesor Comercial': ['inicio', 'proyectos', 'pedidos', 'pipeline', 'reportes', 'roles_permisos'],
   'Perito de Calidad': ['inicio', 'calidad', 'pipeline', 'roles_permisos'],
@@ -61,6 +62,7 @@ export const canRole = {
   despachar: (r?: UserRole) => r === 'Administrador' || r === 'Jefe de Despachos',
   editarInventario: (r?: UserRole) => r === 'Administrador',
   gestionarEmpleados: (r?: UserRole) => r === 'Administrador',
+  moderarOpiniones: (r?: UserRole) => r === 'Administrador',
 };
 
 export interface ResultadoCanje {
@@ -179,6 +181,8 @@ interface AppContextType {
   toastKind: ToastKind;
   /** kind 'error' pinta el aviso en rojo; por defecto se infiere del texto ("No se pudo…" = error). */
   showToast: (msg: string, kind?: ToastKind) => void;
+  /** Traduce un error del API a un mensaje; si es 401 cierra la sesión local. */
+  handleApiError: (err: unknown, fallback: string) => string;
 }
 
 export type ToastKind = 'ok' | 'error';
@@ -757,7 +761,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         crearUsuario, actualizarEmpleado, actualizarPerfilUsuario,
         cambiarEstadoPedido, canjearCodigoRetiro,
         mensajesSinLeer, refreshMensajesSinLeer, marcarConversacionLeida,
-        toastMessage, toastKind, showToast,
+        toastMessage, toastKind, showToast, handleApiError,
       }}
     >
       {children}

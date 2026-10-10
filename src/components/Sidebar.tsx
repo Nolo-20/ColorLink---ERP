@@ -20,7 +20,8 @@ import {
   Info,
   Users,
   User,
-  MessageSquare
+  MessageSquare,
+  MessageSquareText
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -62,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed: collapsedDesktop, s
   const menuItems: { id: TabType; label: string; icon: React.ElementType; badge?: string | number; badgeColor?: string; unread?: number }[] = [
     { id: 'inicio', label: 'Inicio / Panel Principal', icon: Home },
     { id: 'pedidos', label: 'Pedidos & Retiro Tienda', icon: ShoppingBag, badge: pendingPickup > 0 ? `${pendingPickup} Retiro` : pedidos.length, badgeColor: pendingPickup > 0 ? 'bg-amber-500 text-slate-950 font-bold' : undefined },
+    { id: 'opiniones', label: 'Opiniones de Clientes', icon: MessageSquareText },
     { id: 'proyectos', label: 'Proyectos & Cotizaciones', icon: Layers, badge: proyectos.length },
     { id: 'pipeline', label: 'Pipeline & Trazabilidad', icon: GitCommit },
     { id: 'calidad', label: 'Control de Calidad', icon: ShieldCheck, badge: pendingQuality > 0 ? pendingQuality : undefined, badgeColor: 'bg-amber-500 text-slate-950 font-bold' },
