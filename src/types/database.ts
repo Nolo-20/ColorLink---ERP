@@ -237,6 +237,11 @@ export interface PedidoTienda {
   barrioSector?: string;
   instruccionesEntrega?: string;
   metodoPago?: 'PSE / Transferencia' | 'Tarjeta Crédito / Débito' | 'Pago Contra Entrega' | 'Crédito ColorLink 30 Días';
+  destinatario?: string;
+  telefonoContacto?: string;
+  costoEnvio?: number;
+  facturaRazonSocial?: string;
+  facturaNit?: string;
   subtotal: number;
   iva: number;
   total: number;
