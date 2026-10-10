@@ -2,6 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useApp, canRole } from '../context/AppContext';
 import { InventarioProducto } from '../types/database';
 import { api, ApiError } from '../api';
+import { ModalBackdrop, FieldError, bordeCampo, descargarCsv, hoyArchivo } from './ui';
+import {
+  soloDigitos, errorRango, aNumero, limpiarLote, LOTE_RE, CANTIDAD_MAX, BODEGA_MIN, BODEGA_MAX, normalizarTexto,
+} from '../validation';
 import {
   Package,
   MapPin,
@@ -14,8 +18,13 @@ import {
   Palette,
   Check,
   Ban,
-  ChevronDown
+  ChevronDown,
+  Download,
+  X
 } from 'lucide-react';
+
+const TIEMPO_DESPACHO_MAX = 240;
+type CampoEntrada = 'producto' | 'bodega' | 'nuevaBodega' | 'ciudad' | 'lote' | 'cantidad' | 'tiempo';
 
 const NUEVA_BODEGA = '__nueva__';
 
@@ -63,7 +72,8 @@ export const InventoryModule: React.FC = () => {
   const [nuevaBodegaNombre, setNuevaBodegaNombre] = useState('');
   const [nuevaBodegaCiudadId, setNuevaBodegaCiudadId] = useState<number | ''>('');
   const [loteInput, setLoteInput] = useState('');
-  const [cantidadInput, setCantidadInput] = useState<number>(50);
+  const [cantidadInput, setCantidadInput] = useState<string>('50');
+  const [entryTouched, setEntryTouched] = useState<Partial<Record<CampoEntrada, boolean>>>({});
   const [tiempoDespachoInput, setTiempoDespachoInput] = useState<string>('');
   const [savingEntry, setSavingEntry] = useState(false);
 
@@ -98,25 +108,35 @@ export const InventoryModule: React.FC = () => {
   const errorMsg = (err: unknown, fallback: string) =>
     err instanceof ApiError && err.message ? err.message : fallback;
 
+  const [ajustando, setAjustando] = useState<Record<string, boolean>>({});
   const handleAdjustStock = async (inv: InventarioProducto, delta: number) => {
     if (delta < 0 && inv.cantidadDisponible <= 0) return;
+    if (delta > 0 && inv.cantidadDisponible + delta > CANTIDAD_MAX) {
+      showToast(`El stock de un lote no puede superar ${CANTIDAD_MAX.toLocaleString('es-CO')} unidades.`, 'error');
+      return;
+    }
+    if (ajustando[inv.inventarioId]) return;
+    setAjustando(a => ({ ...a, [inv.inventarioId]: true }));
     try {
       // Ajuste relativo: varios clics seguidos se suman en el servidor sin perderse
       await api.adjustStock(inv.inventarioId, delta);
       await refreshData();
     } catch (err) {
       showToast(errorMsg(err, 'No se pudo ajustar el stock.'), 'error');
+    } finally {
+      setAjustando(({ [inv.inventarioId]: _omit, ...rest }) => rest);
     }
   };
 
   const commitStockDraft = async (inv: InventarioProducto) => {
     const raw = stockDraft[inv.inventarioId];
     if (raw === undefined) return;
-    const val = parseInt(raw, 10);
-    if (!Number.isFinite(val) || val < 0 || val === inv.cantidadDisponible) {
+    const val = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
+    const invalida = !Number.isFinite(val) || val < 0 || val > CANTIDAD_MAX;
+    if (invalida || val === inv.cantidadDisponible) {
       setStockDraft(({ [inv.inventarioId]: _omit, ...rest }) => rest);
-      if (raw.trim() !== '' && (!Number.isFinite(val) || val < 0)) {
-        showToast('La cantidad debe ser un número entero mayor o igual a 0.', 'error');
+      if (invalida) {
+        showToast(`La cantidad debe ser un número entero entre 0 y ${CANTIDAD_MAX.toLocaleString('es-CO')}. No se guardó el cambio.`, 'error');
       }
       return;
     }
@@ -132,37 +152,51 @@ export const InventoryModule: React.FC = () => {
   const esNuevaBodega = selectedBodegaName === NUEVA_BODEGA;
   const bodegaSeleccionada = bodegas.find(b => b.nombre === selectedBodegaName);
 
+  // ---- Validación de la entrada de lote (mismos requisitos que POST /api/inventory + reglas de formato)
+  const entryErrors: Partial<Record<CampoEntrada, string>> = {};
+  if (!selectedProdId) entryErrors.producto = productos.length ? 'Selecciona un producto.' : 'Esperando el catálogo de productos…';
+  if (!esNuevaBodega && !bodegaSeleccionada) entryErrors.bodega = 'Selecciona una bodega.';
+  if (esNuevaBodega) {
+    const nb = normalizarTexto(nuevaBodegaNombre);
+    if (!nb) entryErrors.nuevaBodega = 'Escribe el nombre de la nueva bodega.';
+    else if (nb.length < BODEGA_MIN || nb.length > BODEGA_MAX) entryErrors.nuevaBodega = `El nombre de la bodega debe tener entre ${BODEGA_MIN} y ${BODEGA_MAX} caracteres.`;
+    else if (bodegas.some(b => b.nombre.toLowerCase() === nb.toLowerCase())) entryErrors.nuevaBodega = 'Esa bodega ya existe: selecciónala en la lista.';
+    if (nuevaBodegaCiudadId === '') entryErrors.ciudad = 'Selecciona la ciudad de la bodega.';
+  }
+  if (loteInput && !LOTE_RE.test(loteInput)) entryErrors.lote = 'El lote debe tener de 3 a 30 letras, números o guiones (ej. LT-2026-001).';
+  const ec = errorRango(cantidadInput, 'La cantidad', { min: 1, max: CANTIDAD_MAX, entero: true, unidad: 'unidades' });
+  if (ec) entryErrors.cantidad = ec;
+  const et = errorRango(tiempoDespachoInput, 'El tiempo de despacho', { min: 0, max: TIEMPO_DESPACHO_MAX, entero: true, requerido: false, unidad: 'horas' });
+  if (et) entryErrors.tiempo = et;
+  const entradaInvalida = Object.keys(entryErrors).length > 0;
+  const eErr = (c: CampoEntrada) => (entryTouched[c] ? entryErrors[c] : undefined);
+  const eTouch = (c: CampoEntrada) => setEntryTouched(t => (t[c] ? t : { ...t, [c]: true }));
+
+  const resetEntrada = () => {
+    setLoteInput('');
+    setCantidadInput('50');
+    setTiempoDespachoInput('');
+    setNuevaBodegaNombre('');
+    setNuevaBodegaCiudadId('');
+    setEntryTouched({});
+  };
+
+  const abrirModalEntrada = () => {
+    resetEntrada();
+    setNewEntryModalOpen(true);
+  };
+
   const handleCreateEntrySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (savingEntry) return;
-    if (!selectedProdId) {
-      showToast('Selecciona un producto. Si la lista está vacía, espera a que cargue el catálogo.', 'error');
-      return;
-    }
-    if (!Number.isFinite(cantidadInput) || cantidadInput <= 0) {
-      showToast('La cantidad debe ser mayor a 0.', 'error');
+    if (entradaInvalida) {
+      setEntryTouched({ producto: true, bodega: true, nuevaBodega: true, ciudad: true, lote: true, cantidad: true, tiempo: true });
       return;
     }
 
-    let nombreBodega: string;
-    let ciudadId: number | undefined;
-    if (esNuevaBodega) {
-      nombreBodega = nuevaBodegaNombre.trim();
-      ciudadId = nuevaBodegaCiudadId === '' ? undefined : nuevaBodegaCiudadId;
-      if (!nombreBodega || ciudadId == null) {
-        showToast('Escribe el nombre de la nueva bodega y elige su ciudad.', 'error');
-        return;
-      }
-    } else {
-      if (!bodegaSeleccionada) {
-        showToast('Selecciona una bodega.', 'error');
-        return;
-      }
-      nombreBodega = bodegaSeleccionada.nombre;
-      ciudadId = bodegaSeleccionada.ciudadId;
-    }
-
-    const tiempo = tiempoDespachoInput.trim() === '' ? undefined : Number(tiempoDespachoInput);
+    const nombreBodega = esNuevaBodega ? normalizarTexto(nuevaBodegaNombre) : bodegaSeleccionada!.nombre;
+    const ciudadId = esNuevaBodega ? Number(nuevaBodegaCiudadId) : bodegaSeleccionada!.ciudadId;
+    const tiempo = aNumero(tiempoDespachoInput);
 
     setSavingEntry(true);
     try {
@@ -170,19 +204,15 @@ export const InventoryModule: React.FC = () => {
         productoId: selectedProdId,
         ciudadId,
         nombreBodega,
-        numeroLote: loteInput.trim(), // vacío: el servidor genera el número de lote
-        cantidadDisponible: Number(cantidadInput),
-        tiempoDespacho: tiempo != null && Number.isFinite(tiempo) ? tiempo : undefined,
+        numeroLote: loteInput || undefined, // vacío: el servidor genera el número de lote
+        cantidadDisponible: aNumero(cantidadInput) as number,
+        tiempoDespacho: tiempo ?? undefined,
       });
 
       if (!creada) return;
       setNewEntryModalOpen(false);
-      setLoteInput('');
-      if (esNuevaBodega) {
-        setSelectedBodegaName(creada.nombreBodega);
-        setNuevaBodegaNombre('');
-        setNuevaBodegaCiudadId('');
-      }
+      if (esNuevaBodega) setSelectedBodegaName(creada.nombreBodega);
+      resetEntrada();
     } finally {
       setSavingEntry(false);
     }
@@ -207,46 +237,67 @@ export const InventoryModule: React.FC = () => {
     </>
   );
 
-  const nuevaBodegaFields = (inputClass: string) => (
+  const nuevaBodegaFields = (inputClass: string, idPrefix: string) => (
     <>
       <div>
-        <label className={`block font-bold mb-1 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
-          Nombre de la nueva bodega
+        <label htmlFor={`${idPrefix}-nueva-bodega`} className={`block font-bold mb-1 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
+          Nombre de la nueva bodega *
         </label>
         <input
+          id={`${idPrefix}-nueva-bodega`}
           type="text"
-          required
+          maxLength={BODEGA_MAX}
           value={nuevaBodegaNombre}
-          onChange={(e) => setNuevaBodegaNombre(e.target.value)}
+          onChange={(e) => setNuevaBodegaNombre(e.target.value.replace(/\s{2,}/g, ' ').slice(0, BODEGA_MAX))}
+          onBlur={() => eTouch('nuevaBodega')}
+          aria-invalid={!!eErr('nuevaBodega')}
           placeholder="Ej: Bodega Central"
-          className={inputClass}
+          className={`${inputClass} ${bordeCampo(eErr('nuevaBodega'), theme === 'light')}`}
         />
+        <FieldError msg={eErr('nuevaBodega')} />
       </div>
       <div>
-        <label className={`block font-bold mb-1 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
-          Ciudad
+        <label htmlFor={`${idPrefix}-ciudad`} className={`block font-bold mb-1 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
+          Ciudad *
         </label>
         <select
-          required
+          id={`${idPrefix}-ciudad`}
           value={nuevaBodegaCiudadId}
-          onChange={(e) => setNuevaBodegaCiudadId(e.target.value === '' ? '' : Number(e.target.value))}
-          className={inputClass}
+          onChange={(e) => { setNuevaBodegaCiudadId(e.target.value === '' ? '' : Number(e.target.value)); eTouch('ciudad'); }}
+          onBlur={() => eTouch('ciudad')}
+          aria-invalid={!!eErr('ciudad')}
+          className={`${inputClass} ${bordeCampo(eErr('ciudad'), theme === 'light')}`}
         >
           <option value="">{ciudades.length ? 'Selecciona la ciudad' : 'Cargando ciudades…'}</option>
           {ciudades.map(c => (
             <option key={c.ciudadId} value={c.ciudadId}>{c.ciudad}</option>
           ))}
         </select>
+        <FieldError msg={eErr('ciudad')} />
       </div>
     </>
   );
 
-  const quickInputClass = `w-full rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus:border-emerald-500 ${
-    fieldClass('bg-white border border-slate-300 text-slate-900', 'bg-slate-900 border border-slate-700 text-white')
+  const quickInputClass = `w-full rounded-xl px-3 py-2 text-xs font-medium focus:outline-none border ${
+    fieldClass('bg-white text-slate-900', 'bg-slate-900 text-white')
   }`;
-  const modalInputClass = `w-full rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-emerald-500 ${
-    fieldClass('bg-slate-100 border border-slate-300 text-slate-900', 'bg-slate-900 border border-slate-700 text-white')
+  const modalInputClass = `w-full rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none border ${
+    fieldClass('bg-slate-100 text-slate-900', 'bg-slate-900 text-white')
   }`;
+  const isLight = theme === 'light';
+
+  const exportarLotes = () => {
+    descargarCsv(
+      `inventario-lotes-${hoyArchivo()}.csv`,
+      ['Producto', 'Presentación', 'Bodega', 'Ciudad', 'Lote', 'Stock disponible', 'Fecha tinturación', 'Tiempo despacho (h)'],
+      filteredInventarios.map(inv => [
+        inv.producto?.nombre || '', inv.producto?.presentacion || '', inv.nombreBodega, inv.ciudad?.ciudad || '',
+        inv.numeroLote || '', inv.cantidadDisponible,
+        inv.fechaTinturado && !isNaN(new Date(inv.fechaTinturado).getTime()) ? new Date(inv.fechaTinturado).toLocaleDateString('es-CO') : '',
+        inv.tiempoDespacho ?? '',
+      ]),
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -275,7 +326,8 @@ export const InventoryModule: React.FC = () => {
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2.5">
             <button
-              onClick={() => setNewEntryModalOpen(true)}
+              type="button"
+              onClick={abrirModalEntrada}
               className="px-4 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4 text-slate-950" />
@@ -286,8 +338,9 @@ export const InventoryModule: React.FC = () => {
       </div>
 
       {/* Navigation Subtabs */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
+          type="button"
           onClick={() => setActiveTabSub('lotes')}
           className={`px-5 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTabSub === 'lotes'
@@ -300,6 +353,7 @@ export const InventoryModule: React.FC = () => {
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTabSub('disponibilidad')}
           className={`px-5 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTabSub === 'disponibilidad'
@@ -354,18 +408,18 @@ export const InventoryModule: React.FC = () => {
               </div>
 
               {quickEntryExpanded && (
-                <form onSubmit={handleCreateEntrySubmit} className="pt-2 border-t border-slate-700/40 grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+                <form onSubmit={handleCreateEntrySubmit} noValidate data-testid="quick-entry-form" className={`pt-2 border-t grid grid-cols-1 md:grid-cols-12 gap-3 text-xs ${isLight ? 'border-slate-200' : 'border-slate-700/40'}`}>
                   {/* Product Selection */}
                   <div className="md:col-span-4">
                     <label className={`block font-bold mb-1 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                       Producto a Ingresar
                     </label>
                     <select
-                      required
+                      aria-label="Producto a ingresar"
                       value={selectedProdId}
                       onChange={(e) => setSelectedProdId(e.target.value)}
                       disabled={productos.length === 0}
-                      className={quickInputClass}
+                      className={`${quickInputClass} ${bordeCampo(eErr('producto'), isLight)}`}
                     >
                       {productos.length === 0 && <option value="">Cargando productos…</option>}
                       {productOptions}
@@ -378,12 +432,14 @@ export const InventoryModule: React.FC = () => {
                       Bodega / Sucursal
                     </label>
                     <select
+                      aria-label="Bodega"
                       value={selectedBodegaName}
                       onChange={(e) => setSelectedBodegaName(e.target.value)}
-                      className={quickInputClass}
+                      className={`${quickInputClass} ${bordeCampo(eErr('bodega'), isLight)}`}
                     >
                       {bodegaOptions}
                     </select>
+                    <FieldError msg={eErr('bodega')} />
                   </div>
 
                   {/* Lot Number */}
@@ -392,12 +448,18 @@ export const InventoryModule: React.FC = () => {
                       Número de Lote
                     </label>
                     <input
+                      id="quick-lote"
                       type="text"
+                      autoComplete="off"
+                      maxLength={30}
                       value={loteInput}
-                      onChange={(e) => setLoteInput(e.target.value)}
-                      className={`${quickInputClass} font-mono font-bold`}
+                      onChange={(e) => setLoteInput(limpiarLote(e.target.value))}
+                      onBlur={() => eTouch('lote')}
+                      aria-invalid={!!eErr('lote')}
+                      className={`${quickInputClass} font-mono font-bold uppercase ${bordeCampo(eErr('lote'), isLight)}`}
                       placeholder="Automático"
                     />
+                    <FieldError msg={eErr('lote')} />
                   </div>
 
                   {/* Quantity + Quick pills */}
@@ -411,9 +473,9 @@ export const InventoryModule: React.FC = () => {
                           <button
                             key={amt}
                             type="button"
-                            onClick={() => setCantidadInput(amt)}
+                            onClick={() => setCantidadInput(String(amt))}
                             className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
-                              cantidadInput === amt
+                              cantidadInput === String(amt)
                                 ? 'bg-emerald-500 text-slate-950 font-black'
                                 : theme === 'light' ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-slate-800 text-slate-400 hover:text-white'
                             }`}
@@ -425,29 +487,35 @@ export const InventoryModule: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                       <input
-                        type="number"
-                        min={1}
-                        required
+                        id="quick-cantidad"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        aria-label="Cantidad a cargar"
+                        maxLength={7}
                         value={cantidadInput}
-                        onChange={(e) => setCantidadInput(Math.max(1, parseInt(e.target.value) || 0))}
-                        className={`w-28 rounded-xl px-3 py-2 text-xs font-mono font-black text-center focus:outline-none focus:border-emerald-500 ${
-                          theme === 'light' ? 'bg-white border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-emerald-400'
+                        onChange={(e) => setCantidadInput(soloDigitos(e.target.value, 7))}
+                        onBlur={() => eTouch('cantidad')}
+                        aria-invalid={!!eErr('cantidad')}
+                        className={`w-28 rounded-xl px-3 py-2 text-xs font-mono font-black text-center focus:outline-none border ${bordeCampo(eErr('cantidad'), isLight)} ${
+                          theme === 'light' ? 'bg-white text-slate-900' : 'bg-slate-900 text-emerald-400'
                         }`}
                       />
                       <button
                         type="submit"
-                        disabled={savingEntry || productos.length === 0}
+                        disabled={savingEntry || entradaInvalida}
                         className="flex-1 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/25 flex items-center justify-center gap-1.5 cursor-pointer py-2"
                       >
                         <Plus className="w-4 h-4 text-slate-950" />
                         <span>{savingEntry ? 'Guardando…' : 'Cargar Stock'}</span>
                       </button>
                     </div>
+                    <FieldError msg={eErr('cantidad')} />
                   </div>
 
                   {esNuevaBodega && (
                     <div className="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {nuevaBodegaFields(quickInputClass)}
+                      {nuevaBodegaFields(quickInputClass, 'quick')}
                     </div>
                   )}
                 </form>
@@ -462,10 +530,12 @@ export const InventoryModule: React.FC = () => {
             <div className="relative w-full sm:w-80">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
-                type="text"
+                type="search"
+                maxLength={80}
+                aria-label="Buscar en inventario"
                 placeholder="Buscar por producto o número de lote..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => setSearchTerm(e.target.value.slice(0, 80))}
                 className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-emerald-500 ${
                   theme === 'light'
                     ? 'bg-slate-100 border border-slate-300 text-slate-900'
@@ -474,14 +544,15 @@ export const InventoryModule: React.FC = () => {
               />
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <span className={`text-xs whitespace-nowrap ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
                 Filtrar Bodega:
               </span>
               <select
                 value={selectedBodegaFilter}
                 onChange={(e) => setSelectedBodegaFilter(e.target.value)}
-                className={`rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 font-medium ${
+                aria-label="Filtrar por bodega"
+                className={`flex-1 min-w-0 sm:flex-none rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 font-medium ${
                   theme === 'light'
                     ? 'bg-slate-100 border border-slate-300 text-slate-900'
                     : 'bg-slate-900 border border-slate-700 text-white'
@@ -494,6 +565,18 @@ export const InventoryModule: React.FC = () => {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={exportarLotes}
+                disabled={filteredInventarios.length === 0}
+                title="Descargar los lotes visibles en CSV (Excel)"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${
+                  isLight ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV</span>
+              </button>
             </div>
           </div>
 
@@ -565,11 +648,13 @@ export const InventoryModule: React.FC = () => {
                           <div className="inline-flex items-center gap-2">
                             {canEdit ? (
                               <input
-                                type="number"
-                                min={0}
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={7}
+                                aria-label={`Stock del lote ${inv.numeroLote || ''}`}
                                 disabled={saving}
                                 value={draft ?? String(inv.cantidadDisponible)}
-                                onChange={(e) => setStockDraft(s => ({ ...s, [inv.inventarioId]: e.target.value }))}
+                                onChange={(e) => setStockDraft(s => ({ ...s, [inv.inventarioId]: soloDigitos(e.target.value, 7) }))}
                                 onBlur={() => commitStockDraft(inv)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -617,8 +702,10 @@ export const InventoryModule: React.FC = () => {
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
+                                type="button"
                                 onClick={() => handleAdjustStock(inv, -1)}
-                                disabled={inv.cantidadDisponible <= 0}
+                                disabled={inv.cantidadDisponible <= 0 || !!ajustando[inv.inventarioId]}
+                                aria-label="Restar 1 unidad"
                                 className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                                   theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
                                 }`}
@@ -627,8 +714,11 @@ export const InventoryModule: React.FC = () => {
                                 <Minus className="w-3.5 h-3.5" />
                               </button>
                               <button
+                                type="button"
                                 onClick={() => handleAdjustStock(inv, 1)}
-                                className="w-7 h-7 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center font-bold transition-colors cursor-pointer"
+                                disabled={inv.cantidadDisponible >= CANTIDAD_MAX || !!ajustando[inv.inventarioId]}
+                                aria-label="Sumar 1 unidad"
+                                className="w-7 h-7 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 title="Sumar 1 unidad"
                               >
                                 <Plus className="w-3.5 h-3.5" />
@@ -731,116 +821,135 @@ export const InventoryModule: React.FC = () => {
 
       {/* MODAL: REGISTRAR ENTRADA MANUAL DE LOTE */}
       {canEdit && newEntryModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className={`border rounded-3xl w-full max-w-lg p-6 shadow-2xl relative text-xs ${
-            theme === 'light' ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
+        <ModalBackdrop onClose={() => { if (!savingEntry) setNewEntryModalOpen(false); }} bloqueado={savingEntry} label="Entrada de inventario">
+          <div className={`border rounded-3xl w-full max-w-lg p-5 sm:p-6 shadow-2xl relative text-xs my-auto ${
+            isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
           }`}>
-            <div className={`flex items-center justify-between pb-3 border-b ${
-              theme === 'light' ? 'border-slate-200' : 'border-slate-800'
-            }`}>
+            <div className={`flex items-center justify-between pb-3 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
               <div className="flex items-center gap-2">
                 <PlusCircle className="w-5 h-5 text-emerald-500" />
                 <h3 className="font-extrabold text-base">Entrada Manual de Inventario / Nuevo Lote</h3>
               </div>
               <button
-                onClick={() => setNewEntryModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                type="button"
+                onClick={() => { if (!savingEntry) setNewEntryModalOpen(false); }}
+                aria-label="Cerrar"
+                className={`p-1 rounded-lg cursor-pointer ${isLight ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateEntrySubmit} className="my-4 space-y-3.5">
-
+            <form onSubmit={handleCreateEntrySubmit} noValidate className="my-4 space-y-3.5" data-testid="entry-modal-form">
               <div>
-                <label className="block font-bold mb-1">Producto</label>
+                <label htmlFor="modal-producto" className="block font-bold mb-1">Producto *</label>
                 <select
-                  required
+                  id="modal-producto"
                   value={selectedProdId}
                   onChange={(e) => setSelectedProdId(e.target.value)}
                   disabled={productos.length === 0}
-                  className={modalInputClass}
+                  className={`${modalInputClass} ${bordeCampo(eErr('producto'), isLight)}`}
                 >
                   {productos.length === 0 && <option value="">Cargando productos…</option>}
                   {productOptions}
                 </select>
+                <FieldError msg={eErr('producto')} />
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Bodega de Destino</label>
+                <label htmlFor="modal-bodega" className="block font-bold mb-1">Bodega de destino *</label>
                 <select
+                  id="modal-bodega"
                   value={selectedBodegaName}
                   onChange={(e) => setSelectedBodegaName(e.target.value)}
-                  className={modalInputClass}
+                  className={`${modalInputClass} ${bordeCampo(eErr('bodega'), isLight)}`}
                 >
                   {bodegaOptions}
                 </select>
+                <FieldError msg={eErr('bodega')} />
               </div>
 
               {esNuevaBodega && (
-                <div className="grid grid-cols-2 gap-3">
-                  {nuevaBodegaFields(modalInputClass)}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {nuevaBodegaFields(modalInputClass, 'modal')}
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold mb-1">Número de Lote</label>
+                  <label htmlFor="modal-lote" className="block font-bold mb-1">Número de lote</label>
                   <input
+                    id="modal-lote"
                     type="text"
+                    autoComplete="off"
+                    maxLength={30}
                     value={loteInput}
-                    onChange={(e) => setLoteInput(e.target.value)}
+                    onChange={(e) => setLoteInput(limpiarLote(e.target.value))}
+                    onBlur={() => eTouch('lote')}
+                    aria-invalid={!!eErr('lote')}
                     placeholder="Automático si se deja vacío"
-                    className={`${modalInputClass} font-mono uppercase`}
+                    className={`${modalInputClass} font-mono uppercase ${bordeCampo(eErr('lote'), isLight)}`}
                   />
+                  <FieldError msg={eErr('lote')} />
                 </div>
 
                 <div>
-                  <label className="block font-bold mb-1">Cantidad a Ingresar (Unidades)</label>
+                  <label htmlFor="modal-cantidad" className="block font-bold mb-1">Cantidad (unidades) *</label>
                   <input
-                    type="number"
-                    required
-                    min={1}
+                    id="modal-cantidad"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={7}
                     value={cantidadInput}
-                    onChange={(e) => setCantidadInput(Math.max(1, parseInt(e.target.value) || 0))}
-                    className={`${modalInputClass} font-mono font-bold`}
+                    onChange={(e) => setCantidadInput(soloDigitos(e.target.value, 7))}
+                    onBlur={() => eTouch('cantidad')}
+                    aria-invalid={!!eErr('cantidad')}
+                    className={`${modalInputClass} font-mono font-bold ${bordeCampo(eErr('cantidad'), isLight)}`}
                   />
+                  <FieldError msg={eErr('cantidad')} />
                 </div>
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Tiempo Estimado de Despacho (Horas, opcional)</label>
+                <label htmlFor="modal-tiempo" className="block font-bold mb-1">Tiempo estimado de despacho (horas, opcional)</label>
                 <input
-                  type="number"
-                  min={0}
-                  max={240}
+                  id="modal-tiempo"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={3}
                   value={tiempoDespachoInput}
-                  onChange={(e) => setTiempoDespachoInput(e.target.value)}
-                  className={`${modalInputClass} font-mono`}
+                  onChange={(e) => setTiempoDespachoInput(soloDigitos(e.target.value, 3))}
+                  onBlur={() => eTouch('tiempo')}
+                  aria-invalid={!!eErr('tiempo')}
+                  placeholder={`0 a ${TIEMPO_DESPACHO_MAX}`}
+                  className={`${modalInputClass} font-mono ${bordeCampo(eErr('tiempo'), isLight)}`}
                 />
+                <FieldError msg={eErr('tiempo')} />
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setNewEntryModalOpen(false)}
+                  onClick={() => { if (!savingEntry) setNewEntryModalOpen(false); }}
                   className={`flex-1 py-2.5 rounded-xl font-semibold cursor-pointer ${
-                    theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'
+                    isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                   }`}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={savingEntry || productos.length === 0}
-                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer"
+                  disabled={savingEntry || entradaInvalida}
+                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer"
                 >
                   {savingEntry ? 'Guardando…' : 'Registrar Lote'}
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
     </div>

@@ -17,6 +17,18 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { ProjectChatPanel } from './ProjectChatPanel';
+import { FieldError, bordeCampo } from './ui';
+import { limpiarDecimal, aNumero, errorRango, errorTexto } from '../validation';
+
+const PATOLOGIA_MAX = 500;
+const SISTEMA_MIN = 5;
+const SISTEMA_MAX = 300;
+const NOTAS_MIN_RECHAZO = 10;
+const NOTAS_MAX = 1000;
+const MOTIVO_IMAGEN_MAX = 500;
+/** Por encima de este % de humedad el sustrato no es apto para pintar. */
+const HUMEDAD_MAX_APROBAR = 14;
+const GRIETA_ESTRUCTURAL = 'Grieta estructural >2mm';
 
 export const QualityReviewModule: React.FC = () => {
   const { 
@@ -64,16 +76,16 @@ export const QualityReviewModule: React.FC = () => {
     return () => { cancelado = true; };
   }, [activeProject?.proyectoId]);
 
+  const [motivoTouched, setMotivoTouched] = useState(false);
+  const errorMotivoImagen = errorTexto(motivoImagen, 'El motivo', { min: 5, max: MOTIVO_IMAGEN_MAX, requerido: true });
+
   const handlePedirCambioImagen = async () => {
-    if (!activeProject || motivoImagen.trim().length < 5) {
-      showToast('Explica brevemente por qué la imagen no sirve (mínimo 5 caracteres).');
-      return;
-    }
-    if (pidiendoImagenBusy) return;
+    if (!activeProject || pidiendoImagenBusy) return;
+    if (errorMotivoImagen) { setMotivoTouched(true); return; }
     setPidiendoImagenBusy(true);
     try {
       const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
-      if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+      if (ok) { setMotivoImagen(''); setPidiendoImagen(false); setMotivoTouched(false); }
     } finally {
       setPidiendoImagenBusy(false);
     }
@@ -82,7 +94,9 @@ export const QualityReviewModule: React.FC = () => {
   // Perito evaluation form state
   const existingDiag = activeProject?.diagnostico;
   // null = el perito todavía no ha registrado la medición (no se inventa un valor)
-  const [humedad, setHumedad] = useState<number | null>(existingDiag?.humedadRelativa ?? null);
+  const [humedadTxt, setHumedadTxt] = useState<string>(existingDiag?.humedadRelativa != null ? String(existingDiag.humedadRelativa) : '');
+  const humedad = aNumero(humedadTxt);
+  const [intento, setIntento] = useState<null | 'aprobar' | 'rechazar'>(null);
   const [fisuras, setFisuras] = useState<NonNullable<DiagnosticoIA['severidadFisuras']>>(
     existingDiag?.severidadFisuras || 'Sin fisuras'
   );
@@ -93,7 +107,8 @@ export const QualityReviewModule: React.FC = () => {
   // Cada vez que cambia el proyecto abierto, el formulario muestra SOLO los datos de ese proyecto
   useEffect(() => {
     const d = activeProject?.diagnostico;
-    setHumedad(d?.humedadRelativa ?? null);
+    setHumedadTxt(d?.humedadRelativa != null ? String(d.humedadRelativa) : '');
+    setIntento(null);
     setFisuras(d?.severidadFisuras || 'Sin fisuras');
     setPatologia(d?.patologiaDetectada || '');
     setSistema(d?.sistemaRecomendado || '');
@@ -107,20 +122,37 @@ export const QualityReviewModule: React.FC = () => {
 
   const proyectoCerrado = !!activeProject && ['despachado', 'cancelado'].includes(activeProject.estadoPipeline);
 
+  // ---- Validación del dictamen
+  const errHumedad = errorRango(humedadTxt, 'La humedad', { min: 0, max: 100, unidad: '%' });
+  const errPatologia = errorTexto(patologia, 'La patología', { max: PATOLOGIA_MAX });
+  const errNotas = errorTexto(notasPerito, 'Las notas', { max: NOTAS_MAX });
+  const errSistemaBase = errorTexto(sistema, 'El sistema recomendado', { max: SISTEMA_MAX });
+  // Para aprobar: sistema homologado, humedad apta y sin grieta estructural
+  const errAprobar = {
+    sistema: errSistemaBase || (sistema.trim().length < SISTEMA_MIN ? `Para aprobar, escribe el sistema recomendado (mínimo ${SISTEMA_MIN} caracteres).` : ''),
+    humedad: !errHumedad && humedad != null && humedad > HUMEDAD_MAX_APROBAR
+      ? `Con humedad mayor a ${HUMEDAD_MAX_APROBAR}% el sustrato no es apto: no se puede aprobar.` : '',
+    fisuras: fisuras === GRIETA_ESTRUCTURAL ? 'Con grieta estructural se requiere intervención civil: no se puede aprobar.' : '',
+  };
+  // Para rechazar: explicar al cliente qué corregir
+  const errRechazar = notasPerito.trim().length < NOTAS_MIN_RECHAZO
+    ? `Para rechazar, explica en las notas qué debe corregirse (mínimo ${NOTAS_MIN_RECHAZO} caracteres).` : '';
+  const comunesInvalidos = !!(errHumedad || errPatologia || errNotas || errSistemaBase);
+  const aprobarInvalido = comunesInvalidos || !!(errAprobar.sistema || errAprobar.humedad || errAprobar.fisuras);
+  const rechazarInvalido = comunesInvalidos || !!errRechazar;
+
   const handleSaveVerdict = async (aprobado: boolean) => {
     if (!activeProject || guardandoVeredicto) return;
-    if (humedad == null) {
-      showToast('Registra la medición de humedad del muro antes de emitir el dictamen.', 'error');
-      return;
-    }
+    setIntento(aprobado ? 'aprobar' : 'rechazar');
+    if (aprobado ? aprobarInvalido : rechazarInvalido) return;
     setGuardandoVeredicto(true);
     try {
       await guardarDiagnosticoCalidad(activeProject.proyectoId, {
-        humedadRelativa: Number(humedad),
+        humedadRelativa: humedad as number,
         severidadFisuras: fisuras,
         patologiaDetectada: patologia.trim() || undefined,
         sistemaRecomendado: sistema.trim() || undefined,
-        notasPerito,
+        notasPerito: notasPerito.trim() || undefined,
         aprobadoCalidad: aprobado,
       });
     } finally {
@@ -187,10 +219,12 @@ export const QualityReviewModule: React.FC = () => {
               const sinLeer = mensajesSinLeer[p.proyectoId] || 0;
 
               return (
-                <div
+                <button
+                  type="button"
                   key={p.proyectoId}
                   onClick={() => handleSelectProject(p)}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                  aria-pressed={isSelected}
+                  className={`block w-full text-left p-4 rounded-xl border transition-all cursor-pointer ${
                     isSelected
                       ? isLight
                         ? 'bg-amber-50/70 border-amber-500 shadow-sm'
@@ -244,7 +278,7 @@ export const QualityReviewModule: React.FC = () => {
 
                   <div className={`flex items-center gap-1.5 text-xs mt-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                     <Building2 className="w-3 h-3 text-slate-400" />
-                    <span className="truncate">{p.empresa?.razonSocial}</span>
+                    <span className="truncate">{p.empresa?.razonSocial || 'Cliente sin empresa registrada'}</span>
                   </div>
 
                   <div className={`flex items-center justify-between text-xs mt-3 pt-2.5 border-t ${
@@ -257,7 +291,7 @@ export const QualityReviewModule: React.FC = () => {
                       {diag?.humedadRelativa != null ? `${diag.humedadRelativa}% Hum.` : 'Sin Medición'}
                     </span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -329,18 +363,22 @@ export const QualityReviewModule: React.FC = () => {
                     <div className="mt-3 space-y-2">
                       <textarea
                         rows={2}
+                        aria-label="Motivo del cambio de imagen"
+                        maxLength={MOTIVO_IMAGEN_MAX}
                         value={motivoImagen}
                         onChange={(e) => setMotivoImagen(e.target.value)}
+                        onBlur={() => setMotivoTouched(true)}
                         placeholder="Dile al cliente qué debe corregir (borrosa, muy oscura, no se ve la fisura…)"
-                        className={`w-full rounded-lg p-3 text-xs focus:outline-none focus:border-amber-500 border ${
-                          isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                        className={`w-full rounded-lg p-3 text-xs focus:outline-none border ${bordeCampo(motivoTouched ? errorMotivoImagen : '', isLight)} ${
+                          isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'
                         }`}
                       />
+                      <FieldError msg={motivoTouched ? errorMotivoImagen : ''} />
                       <div className="flex gap-2">
-                        <button type="button" onClick={handlePedirCambioImagen} disabled={pidiendoImagenBusy} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+                        <button type="button" onClick={handlePedirCambioImagen} disabled={pidiendoImagenBusy || !!errorMotivoImagen} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                           {pidiendoImagenBusy ? 'Enviando…' : 'Enviar solicitud al cliente'}
                         </button>
-                        <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); }} className="px-3 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 cursor-pointer">
+                        <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); setMotivoTouched(false); }} className={`px-3 py-1.5 text-xs rounded-lg border cursor-pointer ${isLight ? 'border-slate-300 text-slate-700 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}>
                           Cancelar
                         </button>
                       </div>
@@ -371,19 +409,32 @@ export const QualityReviewModule: React.FC = () => {
                   <div className="flex items-center gap-4 mt-3">
                     <input
                       type="range"
-                      min={2}
-                      max={24}
+                      aria-label="Humedad (deslizador)"
+                      min={0}
+                      max={30}
                       step={0.1}
-                      value={humedad ?? 2}
-                      onChange={(e) => setHumedad(Number(e.target.value))}
-                      className="flex-1 accent-emerald-500 h-2 bg-slate-300 dark:bg-slate-800 rounded-lg cursor-pointer"
+                      value={humedad != null ? Math.min(30, humedad) : 0}
+                      onChange={(e) => setHumedadTxt(e.target.value)}
+                      className="flex-1 min-w-0 accent-emerald-500 h-2 bg-slate-300 dark:bg-slate-800 rounded-lg cursor-pointer"
                     />
-                    <div className={`w-20 border rounded-lg py-1 px-2 text-center font-mono font-bold text-lg ${
-                      isLight ? 'bg-white border-slate-300 text-emerald-600' : 'bg-slate-950 border-slate-700 text-emerald-400'
-                    }`}>
-                      {humedad != null ? `${humedad}%` : '—'}
+                    <div className="relative w-24 flex-shrink-0">
+                      <input
+                        id="calidad-humedad"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        aria-label="Humedad relativa del muro en %"
+                        value={humedadTxt}
+                        onChange={(e) => setHumedadTxt(limpiarDecimal(e.target.value, 1, 3))}
+                        placeholder="—"
+                        className={`w-full border rounded-lg py-1 pl-2 pr-6 text-center font-mono font-bold text-lg focus:outline-none ${bordeCampo(intento || humedadTxt ? errHumedad : '', isLight)} ${
+                          isLight ? 'bg-white text-emerald-700' : 'bg-slate-950 text-emerald-400'
+                        }`}
+                      />
+                      <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-sm font-bold ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>%</span>
                     </div>
                   </div>
+                  <FieldError msg={(intento || humedadTxt) ? errHumedad || (intento === 'aprobar' ? errAprobar.humedad : '') : ''} />
                   <p className={`text-[11px] mt-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                     Pinturas vinílicas y acrílicas exigen humedad &lt;12%. Recubrimientos epóxicos de pisos exigen &lt;5%.
                   </p>
@@ -397,7 +448,7 @@ export const QualityReviewModule: React.FC = () => {
                     </label>
                     <select
                       value={fisuras}
-                      onChange={(e) => setFisuras(e.target.value as any)}
+                      onChange={(e) => setFisuras(e.target.value as NonNullable<DiagnosticoIA['severidadFisuras']>)}
                       className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none focus:border-amber-500 border ${
                         isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
                       }`}
@@ -407,6 +458,7 @@ export const QualityReviewModule: React.FC = () => {
                       <option value="Fisura activa 0.5-1mm">Fisura activa 0.5-1mm (Requiere masilla elastomérica)</option>
                       <option value="Grieta estructural >2mm">Grieta estructural &gt;2mm (Requiere intervención civil)</option>
                     </select>
+                    <FieldError msg={intento === 'aprobar' ? errAprobar.fisuras : ''} />
                   </div>
 
                   <div>
@@ -415,13 +467,15 @@ export const QualityReviewModule: React.FC = () => {
                     </label>
                     <input
                       type="text"
+                      maxLength={PATOLOGIA_MAX}
                       value={patologia}
                       onChange={(e) => setPatologia(e.target.value)}
                       placeholder="ej. Porosidad media por intemperismo en fachada sur"
-                      className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none focus:border-amber-500 border ${
-                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                      className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none border ${bordeCampo(errPatologia, isLight)} ${
+                        isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'
                       }`}
                     />
+                    <FieldError msg={errPatologia} />
                   </div>
                 </div>
 
@@ -431,14 +485,17 @@ export const QualityReviewModule: React.FC = () => {
                     Sistema Técnico Homologado por el Perito
                   </label>
                   <input
+                    id="calidad-sistema"
                     type="text"
+                    maxLength={SISTEMA_MAX}
                     value={sistema}
                     onChange={(e) => setSistema(e.target.value)}
                     placeholder="ej. 1 Mano Imprimante Antialcalino + 2 Manos Elastómero Fachadas"
-                    className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none focus:border-amber-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                    className={`w-full rounded-lg px-3 py-2.5 text-xs focus:outline-none border ${bordeCampo(intento === 'aprobar' ? errAprobar.sistema : errSistemaBase, isLight)} ${
+                      isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'
                     }`}
                   />
+                  <FieldError msg={intento === 'aprobar' ? errAprobar.sistema : errSistemaBase} />
                 </div>
 
                 {/* 4. Notas del Perito */}
@@ -447,14 +504,20 @@ export const QualityReviewModule: React.FC = () => {
                     Dictamen Técnico & Notas Oficiales de Inspección
                   </label>
                   <textarea
+                    id="calidad-notas"
                     rows={3}
+                    maxLength={NOTAS_MAX}
                     value={notasPerito}
                     onChange={(e) => setNotasPerito(e.target.value)}
                     placeholder="Escribe las consideraciones técnicas para el aplicador de obra y el despacho..."
-                    className={`w-full rounded-lg p-3 text-xs focus:outline-none focus:border-amber-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                    className={`w-full rounded-lg p-3 text-xs focus:outline-none border ${bordeCampo(intento === 'rechazar' ? errRechazar || errNotas : errNotas, isLight)} ${
+                      isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'
                     }`}
                   />
+                  <div className="flex items-start justify-between gap-2">
+                    <FieldError msg={intento === 'rechazar' ? errRechazar || errNotas : errNotas} />
+                    <span className={`ml-auto text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{notasPerito.length}/{NOTAS_MAX}</span>
+                  </div>
                 </div>
 
                 {/* Digital Stamp Certificate info */}
@@ -486,8 +549,11 @@ export const QualityReviewModule: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSaveVerdict(false)}
-                    disabled={guardandoVeredicto}
-                    className="disabled:opacity-60 disabled:cursor-not-allowed flex-1 py-3 px-4 bg-rose-950/40 hover:bg-rose-950 border border-rose-600/50 text-rose-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={guardandoVeredicto || (intento === 'rechazar' && rechazarInvalido)}
+                    data-testid="verdict-reject"
+                    className={`disabled:opacity-50 disabled:cursor-not-allowed flex-1 py-3 px-4 border font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      isLight ? 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-700' : 'bg-rose-950/40 hover:bg-rose-950 border-rose-600/50 text-rose-300'
+                    }`}
                   >
                     <AlertTriangle className="w-4 h-4 text-rose-400" />
                     <span>{guardandoVeredicto ? 'Guardando…' : 'Rechazar Sustrato / Solicitar Corrección'}</span>
@@ -496,8 +562,9 @@ export const QualityReviewModule: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSaveVerdict(true)}
-                    disabled={guardandoVeredicto}
-                    className="disabled:opacity-60 disabled:cursor-not-allowed flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={guardandoVeredicto || (intento === 'aprobar' && aprobarInvalido)}
+                    data-testid="verdict-approve"
+                    className="disabled:opacity-50 disabled:cursor-not-allowed flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4 text-slate-950" />
                     <span>{guardandoVeredicto ? 'Guardando…' : 'Aprobar Sustrato y Autorizar Despacho'}</span>

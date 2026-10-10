@@ -1,5 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { ModalBackdrop, FieldError } from './ui';
+import { errorTexto } from '../validation';
+
+const MOTIVO_MIN = 5;
+const MOTIVO_MAX = 500;
 import { 
   UserPlus, 
   X, 
@@ -30,6 +35,7 @@ export const EscalateAdvisorModal: React.FC = () => {
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [motivoTouched, setMotivoTouched] = useState(false);
 
   // Cada vez que se abre (o llegan los usuarios del servidor) se elige un asesor válido
   useEffect(() => {
@@ -39,30 +45,32 @@ export const EscalateAdvisorModal: React.FC = () => {
   }, [escalateModalOpen, projectToEscalate?.proyectoId, usuarios]);
 
   useEffect(() => {
-    if (escalateModalOpen) { setMotivo(''); setSaving(false); }
+    if (escalateModalOpen) { setMotivo(''); setSaving(false); setMotivoTouched(false); }
   }, [escalateModalOpen, projectToEscalate?.proyectoId]);
 
   if (!escalateModalOpen || !projectToEscalate) return null;
 
   const targetAdvisor = usuarios.find(u => u.usuarioId === selectedAdvisorId);
   const proyectoCerrado = ['despachado', 'cancelado'].includes(projectToEscalate.estadoPipeline);
+  const errMotivo = errorTexto(motivo, 'El motivo del escalamiento', { min: MOTIVO_MIN, max: MOTIVO_MAX, requerido: true });
+  const cerrar = () => { if (!saving) setEscalateModalOpen(false); };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
     if (proyectoCerrado) { setError('Este proyecto ya está cerrado y no se puede reasignar.'); return; }
     if (!selectedAdvisorId) { setError('No hay otro asesor comercial activo para recibir el proyecto.'); return; }
-    if (motivo.trim().length < 5) { setError('Escribe el motivo del escalamiento.'); return; }
+    if (errMotivo) { setMotivoTouched(true); return; }
     setError('');
     setSaving(true);
-    const ok = await escalarAsesorProyecto(projectToEscalate.proyectoId, selectedAdvisorId, motivo.trim());
+    const ok = await escalarAsesorProyecto(projectToEscalate.proyectoId, selectedAdvisorId, motivo.trim().replace(/\s+/g, ' '));
     setSaving(false);
     if (!ok) setError('El servidor no aceptó la reasignación. Revisa el aviso e inténtalo de nuevo.');
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#0b172a] border border-slate-700 rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col p-6 shadow-2xl relative text-white">
+    <ModalBackdrop onClose={cerrar} bloqueado={saving} label="Escalamiento de asesor">
+      <div className="bg-[#0b172a] border border-slate-700 rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col p-4 sm:p-6 shadow-2xl relative text-white">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -79,7 +87,9 @@ export const EscalateAdvisorModal: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setEscalateModalOpen(false)}
+            type="button"
+            aria-label="Cerrar"
+            onClick={cerrar}
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -87,7 +97,7 @@ export const EscalateAdvisorModal: React.FC = () => {
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="overflow-y-auto space-y-4 my-4 pr-1 flex-1 text-xs">
+        <form onSubmit={handleSubmit} noValidate data-testid="escalate-form" className="overflow-y-auto space-y-4 my-4 pr-1 flex-1 text-xs">
           
           {/* Project Summary */}
           <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl space-y-2">
@@ -98,12 +108,16 @@ export const EscalateAdvisorModal: React.FC = () => {
             <div className="flex flex-wrap items-center gap-3 text-slate-300">
               <span className="flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                {projectToEscalate.empresa?.razonSocial}
+                {projectToEscalate.empresa?.razonSocial || 'Cliente sin empresa registrada'}
               </span>
-              <span>•</span>
-              <span className="font-mono text-emerald-400">{projectToEscalate.area} m²</span>
-              <span>•</span>
-              <span className="text-slate-400">{projectToEscalate.ambiente}</span>
+              {projectToEscalate.area != null && (<>
+                <span>•</span>
+                <span className="font-mono text-emerald-400">{projectToEscalate.area} m²</span>
+              </>)}
+              {projectToEscalate.ambiente && (<>
+                <span>•</span>
+                <span className="text-slate-400">{projectToEscalate.ambiente}</span>
+              </>)}
             </div>
           </div>
 
@@ -182,15 +196,22 @@ export const EscalateAdvisorModal: React.FC = () => {
               Motivo del Escalamiento / Justificación
             </label>
             <textarea
+              id="escalate-motivo"
               rows={3}
-              required
               value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-              minLength={5}
-              maxLength={500}
+              onChange={(e) => setMotivo(e.target.value.slice(0, MOTIVO_MAX))}
+              onBlur={() => setMotivoTouched(true)}
+              maxLength={MOTIVO_MAX}
+              aria-invalid={!!(motivoTouched && errMotivo)}
               placeholder="Detalla por qué se transfiere el proyecto (ej. sobrecarga, solicitud de asesor senior, especialidad en epóxicos)..."
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-500"
+              className={`w-full bg-slate-900 border rounded-xl p-3 text-xs text-white focus:outline-none ${
+                motivoTouched && errMotivo ? 'border-rose-500' : 'border-slate-700 focus:border-amber-500'
+              }`}
             />
+            <div className="flex items-start justify-between gap-2">
+              <FieldError msg={motivoTouched ? errMotivo : ''} />
+              <span className="ml-auto text-[10px] font-mono text-slate-400">{motivo.length}/{MOTIVO_MAX}</span>
+            </div>
           </div>
 
           {/* Previous Escalation History if any */}
@@ -207,7 +228,7 @@ export const EscalateAdvisorModal: React.FC = () => {
                       <strong className="text-white">{h.asesorNombre}</strong> — {h.motivo || 'Asignación'}
                     </span>
                     <span className="font-mono text-slate-500">
-                      {new Date(h.fechaAsignacion).toLocaleDateString('es-CO')}
+                      {h.fechaAsignacion && !isNaN(new Date(h.fechaAsignacion).getTime()) ? new Date(h.fechaAsignacion).toLocaleDateString('es-CO') : '—'}
                     </span>
                   </div>
                 ))}
@@ -225,14 +246,14 @@ export const EscalateAdvisorModal: React.FC = () => {
           <div className="pt-2 flex gap-3">
             <button
               type="button"
-              onClick={() => setEscalateModalOpen(false)}
+              onClick={cerrar}
               className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={saving || candidates.length === 0 || proyectoCerrado}
+              disabled={saving || candidates.length === 0 || proyectoCerrado || (motivoTouched && !!errMotivo)}
               className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4" />
@@ -241,6 +262,6 @@ export const EscalateAdvisorModal: React.FC = () => {
           </div>
         </form>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };

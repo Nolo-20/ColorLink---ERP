@@ -1,52 +1,88 @@
-import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useApp, canRole } from '../context/AppContext';
 import { UserRole, Usuario } from '../types/database';
 import { STAFF_ROLE_LABELS } from '../mappers';
 import { passwordPolicyError, PASSWORD_POLICY_HINT } from '../passwordPolicy';
-import { 
-  UserPlus, 
-  ShieldCheck, 
-  User, 
-  Mail, 
-  Phone, 
-  Building2, 
-  CheckCircle2, 
-  Key, 
-  Lock, 
+import {
+  limpiarLetras, soloDigitos, errorNombrePersona, errorEmail, errorCelular, EMAIL_MAX, normalizarTexto,
+} from '../validation';
+import { ModalBackdrop, FieldError, bordeCampo, descargarCsv, hoyArchivo } from './ui';
+import {
+  UserPlus,
+  ShieldCheck,
+  User,
+  Mail,
+  CheckCircle2,
+  Lock,
   MapPin,
   Users,
   Search,
   Filter,
-  UserCheck,
   AlertCircle,
   Pencil,
-  X
+  X,
+  Download,
 } from 'lucide-react';
 
+// ---------------------------------------------------------------- Reglas (mismas que el backend en el registro)
+
+const NOMBRE_MAX = 40;
+const PASSWORD_MAX = 64;
+
+type TipoDoc = 'CC' | 'CE' | 'PAS';
+const DOC_RULES: Record<TipoDoc, { label: string; re: RegExp; max: number; soloNumeros: boolean; ayuda: string; placeholder: string }> = {
+  CC: { label: 'Cédula de ciudadanía', re: /^\d{6,10}$/, max: 10, soloNumeros: true, ayuda: 'Solo números, entre 6 y 10 dígitos.', placeholder: '1037000000' },
+  CE: { label: 'Cédula de extranjería', re: /^[A-Z0-9]{6,12}$/, max: 12, soloNumeros: false, ayuda: 'Letras o números, entre 6 y 12 caracteres.', placeholder: 'E1234567' },
+  PAS: { label: 'Pasaporte', re: /^[A-Z0-9]{5,12}$/, max: 12, soloNumeros: false, ayuda: 'Letras o números, entre 5 y 12 caracteres.', placeholder: 'AB123456' },
+};
+const limpiarDoc = (v: string, tipo: TipoDoc) => {
+  const r = DOC_RULES[tipo];
+  return (r.soloNumeros ? v.replace(/\D/g, '') : v.toUpperCase().replace(/[^A-Z0-9]/g, '')).slice(0, r.max);
+};
+
+const EMPRESA_EMPLEADOS = 'ColorLink S.A.S.';
+
+const ROLE_HINT: Record<string, string> = {
+  'Asesor Comercial': 'Asesor Comercial (proyectos, cotizaciones y pedidos)',
+  'Perito de Calidad': 'Perito de Calidad (peritaje y dictamen técnico)',
+  'Jefe de Despachos': 'Jefe de Despachos (despachos, pedidos e inventario)',
+  'Administrador': 'Administrador (control total)',
+};
+
+const CAMPO_LABEL: Record<string, string> = {
+  nombre: 'nombres', apellido: 'apellidos', email: 'correo', telefono: 'teléfono',
+  documentId: 'documento', city: 'sede', password: 'contraseña', rol: 'rol',
+};
+
 export const EmployeeManagementPanel: React.FC = () => {
-  const { 
-    usuarios, 
-    crearUsuario, 
+  const {
+    usuarios,
+    ciudades,
+    crearUsuario,
     actualizarEmpleado,
     theme,
-    currentUser
+    currentUser,
   } = useApp();
 
   const isLight = theme === 'light';
+  const puedeGestionar = canRole.gestionarEmpleados(currentUser?.rol.rol);
 
-  // Form states with strict limits
+  // Sedes: las ciudades reales del backend
+  const cityOptions = useMemo(
+    () => Array.from(new Set(ciudades.map(c => c.ciudad))).sort((a, b) => a.localeCompare(b, 'es')),
+    [ciudades],
+  );
+
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
   const [email, setEmail] = useState('');
   const [telefono, setTelefono] = useState('');
+  const [tipoDoc, setTipoDoc] = useState<TipoDoc>('CC');
   const [documentId, setDocumentId] = useState('');
   const [rolNombre, setRolNombre] = useState<UserRole>('Asesor Comercial');
   const [password, setPassword] = useState('');
-  const [company, setCompany] = useState('ColorLink S.A.S. - Valle de Aburrá');
-  const [city, setCity] = useState('Medellín');
-  
-  // Validation errors
-  const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
+  const [city, setCity] = useState('');
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [submitErrorNotice, setSubmitErrorNotice] = useState<string>('');
 
   const [searchFilter, setSearchFilter] = useState('');
@@ -56,189 +92,156 @@ export const EmployeeManagementPanel: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingUser = editingId ? usuarios.find(u => u.usuarioId === editingId) || null : null;
 
+  const term = searchFilter.trim().toLowerCase();
+  const digitosBusqueda = term.replace(/\D/g, '');
   const filteredUsers = usuarios.filter((u) => {
-    const matchesSearch = 
-      `${u.nombre} ${u.apellido}`.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      (u.documentId && u.documentId.toLowerCase().includes(searchFilter.toLowerCase()));
+    const matchesSearch =
+      !term ||
+      `${u.nombre} ${u.apellido}`.toLowerCase().includes(term) ||
+      u.email.toLowerCase().includes(term) ||
+      (u.documentId && u.documentId.toLowerCase().includes(term)) ||
+      (digitosBusqueda.length >= 3 && !!u.telefono && u.telefono.replace(/\D/g, '').includes(digitosBusqueda));
     const matchesRole = roleFilter === 'todos' || u.rol.rol === roleFilter;
     return matchesSearch && matchesRole;
   });
 
-  // Strict Field Change Handlers
-  const handleNombreChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Only letters and spaces, max 15 characters
-    const filtered = e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '').slice(0, 15);
-    setNombre(filtered);
-    if (formErrors.nombre) {
-      setFormErrors(prev => ({ ...prev, nombre: '' }));
-    }
+  const docRule = DOC_RULES[tipoDoc];
+
+  // Errores calculados en vivo; se muestran cuando el campo ya se tocó
+  const errors = useMemo(() => {
+    const e: Record<string, string> = {};
+    const en = errorNombrePersona(nombre, 'El nombre', 2, NOMBRE_MAX); if (en) e.nombre = en;
+    const ea = errorNombrePersona(apellido, 'El apellido', 2, NOMBRE_MAX); if (ea) e.apellido = ea;
+    const em = errorEmail(email);
+    if (em) e.email = em;
+    else if (usuarios.some(u => u.email.toLowerCase() === email.trim().toLowerCase())) e.email = 'Ya existe un colaborador con este correo.';
+    const et = errorCelular(telefono, 'El teléfono móvil', true); if (et) e.telefono = et;
+    if (documentId && !docRule.re.test(documentId)) e.documentId = `${docRule.label}: ${docRule.ayuda}`;
+    if (!STAFF_ROLE_LABELS.includes(rolNombre)) e.rol = 'Selecciona un rol válido del equipo.';
+    if (!city) e.city = cityOptions.length ? 'Selecciona la sede del colaborador.' : 'Cargando sedes del servidor…';
+    const ep = passwordPolicyError(password); if (ep) e.password = ep;
+    return e;
+  }, [nombre, apellido, email, telefono, documentId, docRule, rolNombre, city, cityOptions.length, password, usuarios]);
+
+  const hayErrores = Object.keys(errors).length > 0;
+  const err = (campo: string) => (touched[campo] ? errors[campo] : undefined);
+  const touch = (campo: string) => setTouched(t => (t[campo] ? t : { ...t, [campo]: true }));
+
+  const resetForm = () => {
+    setNombre('');
+    setApellido('');
+    setEmail('');
+    setTelefono('');
+    setTipoDoc('CC');
+    setDocumentId('');
+    setRolNombre('Asesor Comercial');
+    setPassword('');
+    setCity('');
+    setTouched({});
+    setSubmitErrorNotice('');
   };
 
-  const handleApellidoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ONLY letters and spaces, MAX EXACT 10 characters
-    const filtered = e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '').slice(0, 10);
-    setApellido(filtered);
-    if (formErrors.apellido) {
-      setFormErrors(prev => ({ ...prev, apellido: '' }));
-    }
+  const abrirCreacion = () => {
+    resetForm();
+    setActiveTabMode('create');
   };
 
-  const handleTelefonoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ONLY numbers, MAX EXACT 10 digits
-    const filtered = e.target.value.replace(/\D/g, '').slice(0, 10);
-    setTelefono(filtered);
-    if (formErrors.telefono) {
-      setFormErrors(prev => ({ ...prev, telefono: '' }));
-    }
-  };
-
-  const handleDocumentIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ONLY numbers, max 10 digits
-    const filtered = e.target.value.replace(/\D/g, '').slice(0, 10);
-    setDocumentId(filtered);
-    if (formErrors.documentId) {
-      setFormErrors(prev => ({ ...prev, documentId: '' }));
-    }
-  };
-
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Clean email, max 40 characters
-    const filtered = e.target.value.trim().toLowerCase().slice(0, 40);
-    setEmail(filtered);
-    if (formErrors.email) {
-      setFormErrors(prev => ({ ...prev, email: '' }));
-    }
-  };
-
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.slice(0, 20);
-    setPassword(val);
-    if (formErrors.password) {
-      setFormErrors(prev => ({ ...prev, password: '' }));
-    }
-  };
-
-  // Form Validation
-  const validateForm = (): boolean => {
-    const errors: { [key: string]: string } = {};
-
-    // 1. Nombre: solo letras, longitud 2 a 15
-    if (!nombre.trim()) {
-      errors.nombre = 'El nombre es obligatorio.';
-    } else if (nombre.trim().length < 2) {
-      errors.nombre = 'El nombre debe tener al menos 2 letras.';
-    }
-
-    // 2. Apellido: solo letras, longitud permitida máx 10 letras
-    if (!apellido.trim()) {
-      errors.apellido = 'El apellido es obligatorio.';
-    } else if (apellido.trim().length < 2) {
-      errors.apellido = 'El apellido debe tener al menos 2 letras.';
-    } else if (apellido.length > 10) {
-      errors.apellido = 'El apellido no puede superar 10 letras.';
-    }
-
-    // 3. Email: formato válido, max 40
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email.trim()) {
-      errors.email = 'El correo electrónico es obligatorio.';
-    } else if (!emailRegex.test(email.trim())) {
-      errors.email = 'Ingresa un correo electrónico institucional válido (ej. usuario@colorlink.co).';
-    }
-
-    // 4. Teléfono: solo números y longitud exacta de 10 números
-    if (!telefono.trim()) {
-      errors.telefono = 'El teléfono móvil es obligatorio.';
-    } else if (telefono.trim().length !== 10) {
-      errors.telefono = 'El teléfono debe contener exactamente 10 números (ej. 3001234567).';
-    }
-
-    // 5. Cédula: si se digita, debe tener entre 7 y 10 números
-    if (documentId.trim() && (documentId.trim().length < 7 || documentId.trim().length > 10)) {
-      errors.documentId = 'La cédula debe contener entre 7 y 10 dígitos numéricos.';
-    }
-
-    // 6. Contraseña: misma política que exige el servidor
-    const policyError = passwordPolicyError(password);
-    if (policyError) {
-      errors.password = policyError;
-    }
-
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+  const cancelarCreacion = () => {
+    if (saving) return;
+    resetForm();
+    setActiveTabMode('roster');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
     setSubmitErrorNotice('');
-
-    if (!validateForm()) {
-      setSubmitErrorNotice('Por favor corrige los campos señalados antes de continuar.');
+    if (hayErrores) {
+      setTouched(Object.fromEntries(Object.keys(CAMPO_LABEL).map(k => [k, true])));
       return;
     }
 
     setSaving(true);
     const creado = await crearUsuario({
-      nombre: nombre.trim(),
-      apellido: apellido.trim(),
-      email: email.trim(),
-      telefono: `+57 ${telefono.trim()}`,
-      documentId: documentId.trim() ? `CC ${documentId.trim()}` : undefined,
+      nombre: normalizarTexto(nombre),
+      apellido: normalizarTexto(apellido),
+      email: email.trim().toLowerCase(),
+      telefono: `+57 ${telefono}`,
+      documentId: documentId ? `${tipoDoc} ${documentId}` : undefined,
       rolNombre,
       password,
-      company,
+      company: EMPRESA_EMPLEADOS,
       city,
     });
     setSaving(false);
 
     // Si el servidor lo rechazó, se conservan los datos para corregirlos (el motivo sale en el aviso)
     if (!creado) {
-      setSubmitErrorNotice('El servidor no pudo crear el colaborador. Revisa el aviso y corrige los datos.');
+      setSubmitErrorNotice('El servidor no pudo crear el colaborador. Revisa el aviso con el motivo y corrige los datos.');
       return;
     }
 
-    // Reset form & view roster
-    setNombre('');
-    setApellido('');
-    setEmail('');
-    setTelefono('');
-    setDocumentId('');
-    setPassword('');
-    setFormErrors({});
-    setSubmitErrorNotice('');
+    resetForm();
     setActiveTabMode('roster');
   };
+
+  const exportarDirectorio = () => {
+    descargarCsv(
+      `colaboradores-colorlink-${hoyArchivo()}.csv`,
+      ['Nombres', 'Apellidos', 'Correo', 'Teléfono', 'Documento', 'Rol', 'Sede', 'Estado'],
+      filteredUsers.map(u => [
+        u.nombre, u.apellido, u.email, u.telefono || '', u.documentId || '', u.rol.rol, u.city || '',
+        u.activo === false ? 'Desactivado' : 'Activo',
+      ]),
+    );
+  };
+
+  if (!puedeGestionar) {
+    return (
+      <div className={`border rounded-3xl p-8 text-center text-sm ${
+        isLight ? 'bg-white border-slate-200 text-slate-600' : 'bg-[#091526] border-slate-800 text-slate-300'
+      }`}>
+        Solo el Administrador puede gestionar los colaboradores del ERP.
+      </div>
+    );
+  }
+
+  const labelCls = `text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`;
+  const hintCls = `text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`;
+  const inputBase = `w-full rounded-xl py-2.5 text-xs focus:outline-none border transition-all ${
+    isLight ? 'bg-slate-50 text-slate-900 placeholder:text-slate-400' : 'bg-slate-900 text-white placeholder:text-slate-500'
+  }`;
+  const pendientes = Object.keys(errors).map(k => CAMPO_LABEL[k] || k);
 
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Top Banner */}
-      <div className={`border rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden transition-all ${
-        isLight 
-          ? 'bg-white border-slate-200 text-slate-900' 
+      <div className={`border rounded-3xl p-5 md:p-8 shadow-sm relative overflow-hidden transition-all ${
+        isLight
+          ? 'bg-white border-slate-200 text-slate-900'
           : 'bg-[#091526] border-slate-800 text-white shadow-xl'
       }`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-indigo-500 text-xs font-bold uppercase tracking-wider mb-1">
               <ShieldCheck className="w-4 h-4" />
-              Gobernanza & Administración de Personal
+              Administración de Personal
             </div>
             <h1 className={`text-2xl md:text-3xl font-black tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              Gestión Centralizada de Empleados
+              Gestión de Empleados
             </h1>
             <p className={`text-xs sm:text-sm mt-1 max-w-2xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-              Alta de nuevos colaboradores, configuración de cargos operativos, sedes de trabajo y gobernanza de credenciales en el ERP ColorLink.
+              Alta de colaboradores, cargos, sedes y credenciales de acceso al ERP ColorLink.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setActiveTabMode('create')}
+              type="button"
+              onClick={abrirCreacion}
               className={`px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-sm ${
                 activeTabMode === 'create'
-                  ? 'bg-[#F2C417] text-slate-950 shadow-emerald-500/20'
+                  ? 'bg-[#F2C417] text-slate-950'
                   : isLight
                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
@@ -249,10 +252,11 @@ export const EmployeeManagementPanel: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveTabMode('roster')}
+              type="button"
+              onClick={cancelarCreacion}
               className={`px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-sm ${
                 activeTabMode === 'roster'
-                  ? 'bg-indigo-600 text-white shadow-indigo-500/20'
+                  ? 'bg-indigo-600 text-white'
                   : isLight
                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
@@ -264,52 +268,41 @@ export const EmployeeManagementPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* Quick KPI Count */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-200/60 dark:border-slate-800/80">
-          <div className={`p-3 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
-            <span className={`text-[10px] uppercase font-bold block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Total Cuentas</span>
-            <span className={`text-xl font-black font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{usuarios.length}</span>
-          </div>
-          <div className={`p-3 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
-            <span className={`text-[10px] uppercase font-bold block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Asesores Comerciales</span>
-            <span className="text-xl font-black font-mono text-emerald-500">
-              {usuarios.filter(u => u.rol.rol === 'Asesor Comercial').length}
-            </span>
-          </div>
-          <div className={`p-3 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
-            <span className={`text-[10px] uppercase font-bold block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Peritos de Calidad</span>
-            <span className="text-xl font-black font-mono text-amber-500">
-              {usuarios.filter(u => u.rol.rol === 'Perito de Calidad').length}
-            </span>
-          </div>
-          <div className={`p-3 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
-            <span className={`text-[10px] uppercase font-bold block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Logística & Despachos</span>
-            <span className="text-xl font-black font-mono text-sky-500">
-              {usuarios.filter(u => u.rol.rol === 'Jefe de Despachos').length}
-            </span>
-          </div>
+        {/* Conteos reales por rol */}
+        <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+          {[
+            { label: 'Total Cuentas', value: usuarios.length, cls: isLight ? 'text-slate-900' : 'text-white' },
+            { label: 'Asesores Comerciales', value: usuarios.filter(u => u.rol.rol === 'Asesor Comercial').length, cls: isLight ? 'text-emerald-700' : 'text-emerald-400' },
+            { label: 'Peritos de Calidad', value: usuarios.filter(u => u.rol.rol === 'Perito de Calidad').length, cls: isLight ? 'text-amber-700' : 'text-amber-400' },
+            { label: 'Jefes de Despachos', value: usuarios.filter(u => u.rol.rol === 'Jefe de Despachos').length, cls: isLight ? 'text-sky-700' : 'text-sky-400' },
+          ].map(k => (
+            <div key={k.label} className={`p-3 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+              <span className={`text-[10px] uppercase font-bold block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.label}</span>
+              <span className={`text-xl font-black font-mono ${k.cls}`}>{k.value}</span>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Main View: Form OR Roster */}
       {activeTabMode === 'create' ? (
-        <div className={`border rounded-3xl p-6 md:p-8 transition-all ${
+        <div className={`border rounded-3xl p-5 md:p-8 transition-all ${
           isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#091526] border-slate-800 shadow-xl'
         }`}>
-          <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-200 dark:border-slate-800">
+          <div className={`flex flex-wrap items-center justify-between gap-3 pb-4 mb-6 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center border border-emerald-500/20">
                 <UserPlus className="w-5 h-5" />
               </div>
               <div>
-                <h2 className={`font-bold text-lg ${isLight ? 'text-slate-900' : 'text-white'}`}>Formulario de Creación de Colaborador</h2>
-                <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Completa los datos para habilitar el acceso institucional al sistema ERP</p>
+                <h2 className={`font-bold text-lg ${isLight ? 'text-slate-900' : 'text-white'}`}>Nuevo colaborador</h2>
+                <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Los campos con * son obligatorios.</p>
               </div>
             </div>
 
             <button
               type="button"
-              onClick={() => setActiveTabMode('roster')}
+              onClick={cancelarCreacion}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${
                 isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
               }`}
@@ -318,318 +311,221 @@ export const EmployeeManagementPanel: React.FC = () => {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} noValidate className="space-y-6" data-testid="employee-create-form">
             {submitErrorNotice && (
-              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+              <div role="alert" className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs font-bold flex items-center gap-2 animate-fadeIn">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span>{submitErrorNotice}</span>
               </div>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* 1. NOMBRES (SOLO LETRAS, MÁX 15) */}
+              {/* Nombres */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Nombres *
-                  </label>
-                  <span className={`text-[10px] font-mono ${nombre.length >= 2 ? 'text-emerald-500 font-bold' : 'text-slate-400'}`}>
-                    {nombre.length} / 15 letras
-                  </span>
+                  <label htmlFor="emp-nombre" className={labelCls}>Nombres *</label>
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{nombre.length}/{NOMBRE_MAX}</span>
                 </div>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    id="emp-nombre"
+                    name="nombre"
                     type="text"
-                    required
-                    maxLength={15}
+                    autoComplete="off"
+                    maxLength={NOMBRE_MAX}
                     value={nombre}
-                    onChange={handleNombreChange}
+                    onChange={(e) => setNombre(limpiarLetras(e.target.value, NOMBRE_MAX))}
+                    onBlur={() => touch('nombre')}
+                    aria-invalid={!!err('nombre')}
                     placeholder="Ej. Andrés Felipe"
-                    className={`w-full rounded-xl pl-10 pr-4 py-2.5 text-xs focus:outline-none border transition-all ${
-                      formErrors.nombre 
-                        ? 'border-rose-500 bg-rose-500/5 text-rose-500' 
-                        : nombre.length >= 2
-                          ? 'border-emerald-500/70 focus:border-emerald-500'
-                          : isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    className={`${inputBase} pl-10 pr-4 ${bordeCampo(err('nombre'), isLight)}`}
                   />
                 </div>
-                {formErrors.nombre ? (
-                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                    {formErrors.nombre}
-                  </p>
-                ) : (
-                  <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Solo letras y espacios permitidos • Máximo 15 letras
-                  </p>
-                )}
+                {err('nombre') ? <FieldError msg={err('nombre')} /> : <p className={hintCls}>Solo letras y espacios (2 a {NOMBRE_MAX}).</p>}
               </div>
 
-              {/* 2. APELLIDOS (SOLO LETRAS, LONGITUD EXACTA MÁXIMA 10 LETRAS) */}
+              {/* Apellidos */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Apellidos *
-                  </label>
-                  <span className={`text-[10px] font-mono ${apellido.length >= 2 ? 'text-emerald-500 font-bold' : 'text-slate-400'}`}>
-                    {apellido.length} / 10 letras
-                  </span>
+                  <label htmlFor="emp-apellido" className={labelCls}>Apellidos *</label>
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{apellido.length}/{NOMBRE_MAX}</span>
                 </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    maxLength={10}
-                    value={apellido}
-                    onChange={handleApellidoChange}
-                    placeholder="Ej. Londoño"
-                    className={`w-full rounded-xl px-4 py-2.5 text-xs focus:outline-none border transition-all ${
-                      formErrors.apellido 
-                        ? 'border-rose-500 bg-rose-500/5 text-rose-500' 
-                        : apellido.length >= 2
-                          ? 'border-emerald-500/70 focus:border-emerald-500'
-                          : isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
-                  />
-                </div>
-                {formErrors.apellido ? (
-                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                    {formErrors.apellido}
-                  </p>
-                ) : (
-                  <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Solo letras • Longitud máxima: 10 letras permitidas
-                  </p>
-                )}
+                <input
+                  id="emp-apellido"
+                  name="apellido"
+                  type="text"
+                  autoComplete="off"
+                  maxLength={NOMBRE_MAX}
+                  value={apellido}
+                  onChange={(e) => setApellido(limpiarLetras(e.target.value, NOMBRE_MAX))}
+                  onBlur={() => touch('apellido')}
+                  aria-invalid={!!err('apellido')}
+                  placeholder="Ej. Londoño Restrepo"
+                  className={`${inputBase} px-4 ${bordeCampo(err('apellido'), isLight)}`}
+                />
+                {err('apellido') ? <FieldError msg={err('apellido')} /> : <p className={hintCls}>Solo letras y espacios (2 a {NOMBRE_MAX}).</p>}
               </div>
 
-              {/* 3. CORREO INSTITUCIONAL (MAX 40 CARACTERES) */}
+              {/* Correo */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Correo Electrónico Institucional *
-                  </label>
-                  <span className={`text-[10px] font-mono ${email.includes('@') ? 'text-emerald-500 font-bold' : 'text-slate-400'}`}>
-                    {email.length} / 40 car.
-                  </span>
-                </div>
+                <label htmlFor="emp-email" className={`${labelCls} block mb-1.5`}>Correo electrónico *</label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    id="emp-email"
+                    name="email"
                     type="email"
-                    required
-                    maxLength={40}
+                    inputMode="email"
+                    autoComplete="off"
+                    maxLength={EMAIL_MAX}
                     value={email}
-                    onChange={handleEmailChange}
+                    onChange={(e) => setEmail(e.target.value.replace(/\s/g, '').toLowerCase().slice(0, EMAIL_MAX))}
+                    onBlur={() => touch('email')}
+                    aria-invalid={!!err('email')}
                     placeholder="colaborador@colorlink.co"
-                    className={`w-full rounded-xl pl-10 pr-4 py-2.5 text-xs focus:outline-none border transition-all ${
-                      formErrors.email 
-                        ? 'border-rose-500 bg-rose-500/5 text-rose-500' 
-                        : email.includes('@')
-                          ? 'border-emerald-500/70 focus:border-emerald-500'
-                          : isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    className={`${inputBase} pl-10 pr-4 ${bordeCampo(err('email'), isLight)}`}
                   />
                 </div>
-                {formErrors.email ? (
-                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                    {formErrors.email}
-                  </p>
-                ) : (
-                  <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Formato oficial de dominio corporativo • Máx 40 caracteres
-                  </p>
-                )}
+                {err('email') ? <FieldError msg={err('email')} /> : <p className={hintCls}>Será su usuario para ingresar al ERP.</p>}
               </div>
 
-              {/* 4. TELÉFONO (SOLO NÚMEROS, LONGITUD EXACTA 10 NÚMEROS) */}
+              {/* Teléfono */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Teléfono / Móvil Corporativo *
-                  </label>
-                  <span className={`text-[10px] font-mono font-bold ${telefono.length === 10 ? 'text-emerald-500' : 'text-slate-400'}`}>
-                    {telefono.length} / 10 números
-                  </span>
+                  <label htmlFor="emp-telefono" className={labelCls}>Celular *</label>
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{telefono.length}/10</span>
                 </div>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 select-none">
-                    +57
-                  </span>
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 select-none">+57</span>
                   <input
+                    id="emp-telefono"
+                    name="telefono"
                     type="tel"
                     inputMode="numeric"
-                    required
+                    autoComplete="off"
                     maxLength={10}
+                    pattern="3[0-9]{9}"
                     value={telefono}
-                    onChange={handleTelefonoChange}
-                    placeholder="3100000000"
-                    className={`w-full rounded-xl pl-12 pr-4 py-2.5 text-xs font-mono font-bold tracking-wider focus:outline-none border transition-all ${
-                      formErrors.telefono 
-                        ? 'border-rose-500 bg-rose-500/5 text-rose-500' 
-                        : telefono.length === 10
-                          ? 'border-emerald-500/80 focus:border-emerald-500'
-                          : isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    onChange={(e) => setTelefono(soloDigitos(e.target.value, 10))}
+                    onBlur={() => touch('telefono')}
+                    aria-invalid={!!err('telefono')}
+                    placeholder="3001234567"
+                    className={`${inputBase} pl-12 pr-4 font-mono tracking-wider ${bordeCampo(err('telefono'), isLight)}`}
                   />
-                  {telefono.length === 10 && (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 absolute right-3.5 top-1/2 -translate-y-1/2" />
-                  )}
                 </div>
-                {formErrors.telefono ? (
-                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                    {formErrors.telefono}
-                  </p>
-                ) : (
-                  <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Solo números permitidos • Longitud exacta: 10 números (ej. 3001234567)
-                  </p>
-                )}
+                {err('telefono') ? <FieldError msg={err('telefono')} /> : <p className={hintCls}>10 números, empieza por 3.</p>}
               </div>
 
-              {/* 5. CÉDULA / DOCUMENTO DE IDENTIDAD (SOLO NÚMEROS, 7 A 10 DÍGITOS) */}
+              {/* Documento */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Cédula / Documento de Identidad
-                  </label>
-                  <span className={`text-[10px] font-mono ${documentId.length >= 7 ? 'text-emerald-500 font-bold' : 'text-slate-400'}`}>
-                    {documentId.length} / 10 números
-                  </span>
-                </div>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 select-none">
-                    CC
-                  </span>
+                <label htmlFor="emp-doc" className={`${labelCls} block mb-1.5`}>Documento de identidad (opcional)</label>
+                <div className="flex gap-2">
+                  <select
+                    aria-label="Tipo de documento"
+                    value={tipoDoc}
+                    onChange={(e) => {
+                      const tipo = e.target.value as TipoDoc;
+                      setTipoDoc(tipo);
+                      setDocumentId(prev => limpiarDoc(prev, tipo));
+                    }}
+                    className={`rounded-xl px-2 py-2.5 text-xs font-bold border focus:outline-none cursor-pointer ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                    }`}
+                  >
+                    <option value="CC">CC</option>
+                    <option value="CE">CE</option>
+                    <option value="PAS">Pasaporte</option>
+                  </select>
                   <input
+                    id="emp-doc"
+                    name="documentId"
                     type="text"
-                    inputMode="numeric"
-                    maxLength={10}
+                    inputMode={docRule.soloNumeros ? 'numeric' : 'text'}
+                    autoComplete="off"
+                    maxLength={docRule.max}
                     value={documentId}
-                    onChange={handleDocumentIdChange}
-                    placeholder="1037000000"
-                    className={`w-full rounded-xl pl-11 pr-4 py-2.5 text-xs font-mono focus:outline-none border transition-all ${
-                      formErrors.documentId 
-                        ? 'border-rose-500 bg-rose-500/5 text-rose-500' 
-                        : documentId.length >= 7
-                          ? 'border-emerald-500/70 focus:border-emerald-500'
-                          : isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    onChange={(e) => setDocumentId(limpiarDoc(e.target.value, tipoDoc))}
+                    onBlur={() => touch('documentId')}
+                    aria-invalid={!!err('documentId')}
+                    placeholder={docRule.placeholder}
+                    className={`${inputBase} px-4 font-mono ${bordeCampo(err('documentId'), isLight)}`}
                   />
                 </div>
-                {formErrors.documentId ? (
-                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                    {formErrors.documentId}
-                  </p>
-                ) : (
-                  <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Solo números permitidos • Entre 7 y 10 dígitos numéricos
-                  </p>
-                )}
+                {err('documentId') ? <FieldError msg={err('documentId')} /> : <p className={hintCls}>{docRule.label}: {docRule.ayuda}</p>}
               </div>
 
-              {/* 6. ROL ASIGNADO EN EL ERP */}
+              {/* Rol */}
               <div>
-                <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Rol Asignado en el ERP *
-                </label>
+                <label htmlFor="emp-rol" className={`${labelCls} block mb-1.5`}>Rol en el ERP *</label>
                 <div className="relative">
                   <ShieldCheck className="w-4 h-4 text-indigo-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <select
+                    id="emp-rol"
                     value={rolNombre}
                     onChange={(e) => setRolNombre(e.target.value as UserRole)}
-                    className={`w-full rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold focus:outline-none focus:border-emerald-500 border cursor-pointer ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    className={`${inputBase} pl-10 pr-4 font-bold cursor-pointer ${bordeCampo(errors.rol, isLight)}`}
                   >
-                    <option value="Asesor Comercial">Asesor Comercial (Cotizaciones, Obras y Catálogo)</option>
-                    <option value="Perito de Calidad">Perito de Calidad (Dictamen NTC y Pruebas Higrométricas)</option>
-                    <option value="Jefe de Despachos">Jefe de Despachos (Inventarios, Tintometría y Rutas)</option>
-                    <option value="Administrador">Administrador (Control Total y Gobernanza)</option>
+                    {STAFF_ROLE_LABELS.map(r => <option key={r} value={r}>{ROLE_HINT[r] || r}</option>)}
                   </select>
                 </div>
-                <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                  Determina los módulos y permisos operativos del usuario en el ERP
-                </p>
+                <p className={hintCls}>Determina los módulos que verá el colaborador.</p>
               </div>
 
-              {/* 7. SEDE / CIUDAD */}
+              {/* Sede */}
               <div>
-                <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Sede / Ciudad de Operación *
-                </label>
+                <label htmlFor="emp-city" className={`${labelCls} block mb-1.5`}>Sede / ciudad *</label>
                 <div className="relative">
                   <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <select
+                    id="emp-city"
                     value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    className={`w-full rounded-xl pl-10 pr-4 py-2.5 text-xs focus:outline-none focus:border-emerald-500 border cursor-pointer ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    onChange={(e) => { setCity(e.target.value); touch('city'); }}
+                    onBlur={() => touch('city')}
+                    disabled={cityOptions.length === 0}
+                    aria-invalid={!!err('city')}
+                    className={`${inputBase} pl-10 pr-4 cursor-pointer disabled:opacity-60 ${bordeCampo(err('city'), isLight)}`}
                   >
-                    <option value="Medellín">Medellín (Sede Principal Guayabal / Poblado)</option>
-                    <option value="Itagüí">Itagüí (Centro Logístico Sur)</option>
-                    <option value="Envigado">Envigado (Sucursal Las Vegas)</option>
-                    <option value="Bello">Bello (Bodega Industrial Norte)</option>
-                    <option value="Sabaneta">Sabaneta</option>
-                    <option value="Rionegro">Rionegro (Oriente Antioqueño)</option>
+                    <option value="">{cityOptions.length ? 'Selecciona la sede' : 'Cargando sedes…'}</option>
+                    {cityOptions.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                  Sucursal de adscripción en el Valle de Aburrá / Antioquia
-                </p>
+                {err('city') ? <FieldError msg={err('city')} /> : <p className={hintCls}>Ciudades registradas en el sistema.</p>}
               </div>
 
-              {/* 8. CONTRASEÑA INICIAL (MÍNIMO 8 CARACTERES, MÁX 20) */}
+              {/* Contraseña */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Contraseña Inicial de Acceso *
-                  </label>
-                  <span className={`text-[10px] font-mono ${password.length >= 8 ? 'text-emerald-500 font-bold' : 'text-amber-400'}`}>
-                    {password.length} / 20 car.
-                  </span>
-                </div>
+                <label htmlFor="emp-password" className={`${labelCls} block mb-1.5`}>Contraseña temporal *</label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    id="emp-password"
+                    name="password"
                     type="text"
-                    required
-                    maxLength={20}
+                    autoComplete="new-password"
+                    maxLength={PASSWORD_MAX}
                     value={password}
-                    onChange={handlePasswordChange}
-                    className={`w-full rounded-xl pl-10 pr-4 py-2.5 text-xs font-mono focus:outline-none border transition-all ${
-                      formErrors.password 
-                        ? 'border-rose-500 bg-rose-500/5 text-rose-500' 
-                        : password.length >= 8
-                          ? 'border-emerald-500/70 focus:border-emerald-500'
-                          : isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    onChange={(e) => setPassword(e.target.value.slice(0, PASSWORD_MAX))}
+                    onBlur={() => touch('password')}
+                    aria-invalid={!!err('password')}
+                    className={`${inputBase} pl-10 pr-4 font-mono ${bordeCampo(err('password'), isLight)}`}
                   />
                 </div>
-                {formErrors.password ? (
-                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                    {formErrors.password}
-                  </p>
-                ) : (
-                  <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {PASSWORD_POLICY_HINT} Máximo 20 (el colaborador podrá modificarla en su perfil).
-                  </p>
+                {err('password') ? <FieldError msg={err('password')} /> : (
+                  <p className={hintCls}>{PASSWORD_POLICY_HINT} El colaborador podrá cambiarla en su perfil.</p>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+            <div className={`flex flex-col sm:flex-row sm:items-center justify-end gap-3 pt-4 border-t ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+              {hayErrores && (
+                <p className={`text-[11px] sm:mr-auto ${isLight ? 'text-slate-500' : 'text-slate-400'}`} data-testid="pending-fields">
+                  Falta completar o corregir: {pendientes.join(', ')}.
+                </p>
+              )}
               <button
                 type="button"
-                onClick={() => setActiveTabMode('roster')}
+                onClick={cancelarCreacion}
                 className={`px-5 py-2.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
                   isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                 }`}
@@ -639,29 +535,31 @@ export const EmployeeManagementPanel: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={saving}
-                className="px-6 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                disabled={saving || hayErrores}
+                className="px-6 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{saving ? 'Creando…' : 'Crear y Habilitar Colaborador'}</span>
+                <span>{saving ? 'Creando…' : 'Crear colaborador'}</span>
               </button>
             </div>
           </form>
         </div>
       ) : (
         /* ROSTER VIEW */
-        <div className={`border rounded-3xl p-6 md:p-8 space-y-6 transition-all ${
+        <div className={`border rounded-3xl p-5 md:p-8 space-y-6 transition-all ${
           isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#091526] border-slate-800 shadow-xl'
         }`}>
           {/* Search & Filter Toolbar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="relative w-full sm:w-80">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
-                type="text"
-                placeholder="Buscar por nombre, correo o documento..."
+                type="search"
+                maxLength={80}
+                aria-label="Buscar colaborador"
+                placeholder="Buscar por nombre, correo, documento o celular…"
                 value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
+                onChange={(e) => setSearchFilter(e.target.value.slice(0, 80))}
                 className={`w-full rounded-xl pl-10 pr-4 py-2 text-xs focus:outline-none focus:border-emerald-500 border ${
                   isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
                 }`}
@@ -669,20 +567,30 @@ export const EmployeeManagementPanel: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter className="w-3.5 h-3.5 text-slate-400" />
+              <Filter className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
               <select
+                aria-label="Filtrar por rol"
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className={`rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-emerald-500 border cursor-pointer ${
+                className={`flex-1 sm:flex-none rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-emerald-500 border cursor-pointer ${
                   isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-white'
                 }`}
               >
                 <option value="todos">Todos los Roles</option>
-                <option value="Administrador">Administrador</option>
-                <option value="Asesor Comercial">Asesor Comercial</option>
-                <option value="Perito de Calidad">Perito de Calidad</option>
-                <option value="Jefe de Despachos">Jefe de Despachos</option>
+                {STAFF_ROLE_LABELS.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
+              <button
+                type="button"
+                onClick={exportarDirectorio}
+                disabled={filteredUsers.length === 0}
+                title="Descargar la lista visible en CSV (Excel)"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isLight ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV</span>
+              </button>
             </div>
           </div>
 
@@ -695,14 +603,14 @@ export const EmployeeManagementPanel: React.FC = () => {
                 <div
                   key={u.usuarioId}
                   className={`border rounded-2xl p-5 flex flex-col justify-between transition-all ${
-                    isLight 
-                      ? 'bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-white shadow-xs' 
+                    isLight
+                      ? 'bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-white'
                       : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
                   }`}
                 >
                   <div>
                     <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-11 h-11 rounded-2xl overflow-hidden border flex-shrink-0 ${
                           isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-800 border-slate-700'
                         }`}>
@@ -710,55 +618,51 @@ export const EmployeeManagementPanel: React.FC = () => {
                             <img src={u.avatarUrl} alt={u.nombre} className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center font-bold text-sm text-slate-500">
-                              {u.nombre[0]}
+                              {(u.nombre || u.email || '?').charAt(0).toUpperCase()}
                             </div>
                           )}
                         </div>
 
-                        <div>
-                          <h3 className={`font-bold text-sm leading-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        <div className="min-w-0">
+                          <h3 className={`font-bold text-sm leading-tight truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
                             {u.nombre} {u.apellido}
                           </h3>
-                          <span className="text-[11px] text-slate-500 font-mono block">
-                            {u.documentId || 'CC N/D'}
+                          <span className={`text-[11px] font-mono block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {u.documentId || 'Documento no registrado'}
                           </span>
                         </div>
                       </div>
 
                       {isCurrentUser && (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
                           Tú
                         </span>
                       )}
                     </div>
 
                     <div className="space-y-1.5 text-xs mb-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
                           u.rol.rol === 'Administrador'
                             ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800'
                             : u.rol.rol === 'Asesor Comercial'
-                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
                               : u.rol.rol === 'Perito de Calidad'
-                                ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
                                 : 'bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800'
                         }`}>
                           {u.rol.rol}
                         </span>
 
-                        <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                          • {u.city || 'Medellín'}
-                        </span>
+                        {u.city && (
+                          <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>• {u.city}</span>
+                        )}
                       </div>
 
-                      <div className={`truncate pt-1 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                        {u.email}
-                      </div>
+                      <div className={`truncate pt-1 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>{u.email}</div>
 
                       {u.telefono && (
-                        <div className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {u.telefono}
-                        </div>
+                        <div className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{u.telefono}</div>
                       )}
                     </div>
                   </div>
@@ -772,7 +676,7 @@ export const EmployeeManagementPanel: React.FC = () => {
                         Desactivado
                       </span>
                     ) : (
-                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+                      <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-semibold">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         Activo en ERP
                       </span>
@@ -781,6 +685,7 @@ export const EmployeeManagementPanel: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setEditingId(u.usuarioId)}
+                      aria-label={`Editar a ${u.nombre} ${u.apellido}`}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
                         isLight ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}
@@ -794,7 +699,7 @@ export const EmployeeManagementPanel: React.FC = () => {
             })}
             {filteredUsers.length === 0 && (
               <p className={`text-xs col-span-full text-center py-6 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                No hay colaboradores que coincidan con la búsqueda.
+                {usuarios.length === 0 ? 'Aún no hay colaboradores registrados.' : 'No hay colaboradores que coincidan con la búsqueda.'}
               </p>
             )}
           </div>
@@ -817,7 +722,7 @@ export const EmployeeManagementPanel: React.FC = () => {
 
 // ---------------------------------------------------------------- Edición de un colaborador
 
-type EditDatos = { telefono?: string; rolNombre?: UserRole; activo?: boolean; password?: string };
+type EditDatos = { nombre?: string; apellido?: string; telefono?: string; rolNombre?: UserRole; activo?: boolean; password?: string };
 
 const EmployeeEditPanel: React.FC<{
   empleado: Usuario;
@@ -826,9 +731,11 @@ const EmployeeEditPanel: React.FC<{
   onClose: () => void;
   onSave: (datos: EditDatos) => Promise<boolean>;
 }> = ({ empleado, isSelf, isLight, onClose, onSave }) => {
-  // El componente se monta con key = usuarioId, así el formulario siempre arranca con los datos del empleado elegido
+  // El componente se monta con key = usuarioId: el formulario siempre arranca con los datos del empleado elegido
   const telefonoInicial = (empleado.telefono || '').replace(/\D/g, '').slice(-10);
   const activoInicial = empleado.activo !== false;
+  const [nombre, setNombre] = useState(empleado.nombre || '');
+  const [apellido, setApellido] = useState(empleado.apellido || '');
   const [rol, setRol] = useState<UserRole>(empleado.rol.rol);
   const [telefono, setTelefono] = useState(telefonoInicial);
   const [activo, setActivo] = useState(activoInicial);
@@ -836,36 +743,32 @@ const EmployeeEditPanel: React.FC<{
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const inputCls = `w-full rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-emerald-500 border ${
-    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+  const errors: Record<string, string> = {};
+  // Nombre y apellido solo se validan si se cambian (cuentas antiguas pueden no cumplir la regla nueva)
+  if (normalizarTexto(nombre) !== empleado.nombre) { const en = errorNombrePersona(nombre, 'El nombre'); if (en) errors.nombre = en; }
+  if (normalizarTexto(apellido) !== (empleado.apellido || '')) { const ea = errorNombrePersona(apellido, 'El apellido'); if (ea) errors.apellido = ea; }
+  // El teléfono se puede dejar vacío para quitarlo; si se cambia, debe ser un celular válido
+  if (telefono !== telefonoInicial) { const et = errorCelular(telefono, 'El teléfono'); if (et) errors.telefono = et; }
+  if (password) { const ep = passwordPolicyError(password); if (ep) errors.password = ep; }
+  const hayErrores = Object.keys(errors).length > 0;
+
+  const datos: EditDatos = {};
+  if (normalizarTexto(nombre) !== empleado.nombre) datos.nombre = normalizarTexto(nombre);
+  if (normalizarTexto(apellido) !== (empleado.apellido || '')) datos.apellido = normalizarTexto(apellido);
+  if (telefono !== telefonoInicial) datos.telefono = telefono ? `+57 ${telefono}` : '';
+  if (!isSelf && rol !== empleado.rol.rol) datos.rolNombre = rol;
+  if (!isSelf && activo !== activoInicial) datos.activo = activo;
+  if (password) datos.password = password;
+  const sinCambios = Object.keys(datos).length === 0;
+
+  const inputCls = (e?: string) => `w-full rounded-xl px-3.5 py-2.5 text-xs focus:outline-none border ${bordeCampo(e, isLight)} ${
+    isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'
   }`;
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (saving || hayErrores || sinCambios) return;
     setError('');
-
-    if (telefono && telefono.length !== 10) {
-      setError('El teléfono debe contener exactamente 10 números (ej. 3001234567).');
-      return;
-    }
-    if (password) {
-      const policyError = passwordPolicyError(password);
-      if (policyError) { setError(policyError); return; }
-    }
-
-    // Solo se envía lo que cambió
-    const datos: EditDatos = {};
-    if (telefono !== telefonoInicial) datos.telefono = telefono ? `+57 ${telefono}` : '';
-    if (!isSelf && rol !== empleado.rol.rol) datos.rolNombre = rol;
-    if (!isSelf && activo !== activoInicial) datos.activo = activo;
-    if (password) datos.password = password;
-
-    if (Object.keys(datos).length === 0) {
-      setError('No hay cambios para guardar.');
-      return;
-    }
-
     setSaving(true);
     const ok = await onSave(datos);
     setSaving(false);
@@ -874,19 +777,19 @@ const EmployeeEditPanel: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <ModalBackdrop onClose={onClose} bloqueado={saving} label="Editar colaborador">
       <form
         onSubmit={handleSave}
-        className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-4 ${
+        noValidate
+        data-testid="employee-edit-form"
+        className={`w-full max-w-md rounded-3xl border p-5 sm:p-6 shadow-2xl space-y-4 my-auto ${
           isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#091526] border-slate-800 text-white'
         }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h3 className="font-bold text-base">Editar colaborador</h3>
-            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              {empleado.nombre} {empleado.apellido} • {empleado.email}
-            </p>
+            <p className={`text-xs truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{empleado.email}</p>
           </div>
           <button
             type="button"
@@ -899,19 +802,35 @@ const EmployeeEditPanel: React.FC<{
         </div>
 
         {error && (
-          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs font-bold flex items-center gap-2">
+          <div role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs font-bold flex items-center gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="edit-nombre" className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Nombres</label>
+            <input id="edit-nombre" type="text" maxLength={NOMBRE_MAX} value={nombre}
+              onChange={(e) => setNombre(limpiarLetras(e.target.value, NOMBRE_MAX))} className={inputCls(errors.nombre)} />
+            <FieldError msg={errors.nombre} />
+          </div>
+          <div>
+            <label htmlFor="edit-apellido" className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Apellidos</label>
+            <input id="edit-apellido" type="text" maxLength={NOMBRE_MAX} value={apellido}
+              onChange={(e) => setApellido(limpiarLetras(e.target.value, NOMBRE_MAX))} className={inputCls(errors.apellido)} />
+            <FieldError msg={errors.apellido} />
+          </div>
+        </div>
+
         <div>
-          <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Rol en el ERP</label>
+          <label htmlFor="edit-rol" className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Rol en el ERP</label>
           <select
+            id="edit-rol"
             value={rol}
             disabled={isSelf}
             onChange={(e) => setRol(e.target.value as UserRole)}
-            className={`${inputCls} cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
+            className={`${inputCls()} cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
           >
             {STAFF_ROLE_LABELS.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -923,19 +842,21 @@ const EmployeeEditPanel: React.FC<{
         </div>
 
         <div>
-          <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Teléfono móvil</label>
+          <label htmlFor="edit-telefono" className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Celular</label>
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 select-none">+57</span>
             <input
+              id="edit-telefono"
               type="tel"
               inputMode="numeric"
               maxLength={10}
               value={telefono}
-              onChange={(e) => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              onChange={(e) => setTelefono(soloDigitos(e.target.value, 10))}
               placeholder="3001234567"
-              className={`${inputCls} pl-12 font-mono`}
+              className={`${inputCls(errors.telefono)} pl-12 font-mono`}
             />
           </div>
+          <FieldError msg={errors.telefono} />
         </div>
 
         <label className={`flex items-center justify-between gap-3 p-3 rounded-xl border text-xs font-bold ${
@@ -952,22 +873,25 @@ const EmployeeEditPanel: React.FC<{
         </label>
 
         <div>
-          <label className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+          <label htmlFor="edit-password" className={`block text-xs font-bold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
             Contraseña temporal (opcional)
           </label>
           <input
+            id="edit-password"
             type="text"
-            maxLength={20}
+            maxLength={PASSWORD_MAX}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.target.value.slice(0, PASSWORD_MAX))}
             placeholder="Dejar en blanco para no cambiarla"
             autoComplete="new-password"
-            className={`${inputCls} font-mono`}
+            className={`${inputCls(errors.password)} font-mono`}
           />
-          <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{PASSWORD_POLICY_HINT}</p>
+          {errors.password ? <FieldError msg={errors.password} /> : (
+            <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{PASSWORD_POLICY_HINT}</p>
+          )}
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
@@ -979,13 +903,14 @@ const EmployeeEditPanel: React.FC<{
           </button>
           <button
             type="submit"
-            disabled={saving}
-            className="px-5 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer"
+            disabled={saving || hayErrores || sinCambios}
+            title={sinCambios ? 'No hay cambios para guardar' : undefined}
+            className="px-5 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer"
           >
             {saving ? 'Guardando…' : 'Guardar cambios'}
           </button>
         </div>
       </form>
-    </div>
+    </ModalBackdrop>
   );
 };

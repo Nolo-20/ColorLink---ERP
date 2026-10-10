@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+/* Las clases dark: siguen el tema elegido en el ERP (clase .dark en <html>), no el del sistema operativo */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Impresión de la remisión: solo se imprime el bloque marcado como imprimible */
+@media print {
+  body * { visibility: hidden !important; }
+  [data-printable], [data-printable] * { visibility: visible !important; }
+  [data-printable] {
+    position: absolute !important; left: 0; top: 0; width: 100% !important;
+    max-height: none !important; overflow: visible !important;
+    background: #fff !important; color: #000 !important; border: none !important;
+  }
+  [data-printable] * { color: #000 !important; background: transparent !important; border-color: #999 !important; box-shadow: none !important; }
+  [data-no-print] { display: none !important; }
+  [data-modal-backdrop], [data-modal-backdrop] > div {
+    position: static !important; max-height: none !important; overflow: visible !important;
+    background: none !important; backdrop-filter: none !important; box-shadow: none !important; border: none !important;
+  }
+}
+
 /* Paleta de marca ColorLink (logo): el acento "emerald" de la interfaz pasa al amarillo de "Link" */
 @theme {
   --color-emerald-50: #FFFBEA;

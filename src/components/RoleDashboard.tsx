@@ -76,7 +76,7 @@ export const RoleDashboard: React.FC = () => {
             Métricas Operativas en Tiempo Real
           </h2>
           <p className={`text-sm mt-1 max-w-2xl ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-            Trazabilidad global de ventas, consumo de cuñetes, índice de aprobación de peritaje técnico y despachos en el Valle de Aburrá.
+            Volumen cotizado en cuñetes, facturación cotizada, índice de aprobación de calidad y despachos, calculados con los datos del servidor.
           </p>
         </div>
 
@@ -194,7 +194,7 @@ export const RoleDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Municipality Breakdown (Valle de Aburrá) */}
+        {/* Cobertura por ciudad (ciudad de la empresa cliente de cada proyecto) */}
         <div className={`border rounded-2xl p-6 space-y-4 transition-all ${
           isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#091526] border-slate-800 shadow-xl'
         }`}>
@@ -236,7 +236,7 @@ export const RoleDashboard: React.FC = () => {
         <div className="flex items-center justify-between">
           <h3 className={`font-bold text-base flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
             <Users className="w-4 h-4 text-emerald-500" />
-            Usuarios & Roles del Sistema (Modelo Prisma)
+            Usuarios & Roles del Sistema
           </h3>
           <span className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
             {usuarios.length} {usuarios.length === 1 ? 'cuenta visible' : 'cuentas visibles'}

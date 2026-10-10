@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ColorLinkLogo } from './ColorLinkLogo';
+import { ModalBackdrop, FieldError } from './ui';
+import { errorEmail, EMAIL_MAX } from '../validation';
 import { 
   User, 
   Eye, 
@@ -54,22 +56,23 @@ export const ModernLoginScreen: React.FC = () => {
     return REPRESENTATIVE_COMPANY_IMAGES[randomIndex];
   });
 
+  const [touched, setTouched] = useState<{ email?: boolean; password?: boolean }>({});
+  const emailError = errorEmail(emailInput);
+  const passwordError = passwordInput ? '' : 'Escribe tu contraseña.';
+  const showEmailError = touched.email ? emailError : '';
+  const showPasswordError = touched.password ? passwordError : '';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
     setErrorMessage(null);
-
-    if (!emailInput.trim()) {
-      setErrorMessage('Por favor ingresa tu correo electrónico corporativo.');
-      return;
-    }
-    if (!passwordInput.trim()) {
-      setErrorMessage('Por favor ingresa tu contraseña.');
+    if (emailError || passwordError) {
+      setTouched({ email: true, password: true });
       return;
     }
 
     setSubmitting(true);
-    const res = await loginWithEmailPassword(emailInput, passwordInput);
+    const res = await loginWithEmailPassword(emailInput.trim().toLowerCase(), passwordInput);
     setSubmitting(false);
     if (!res.success) {
       // La contraseña se conserva para poder verla con el ojo y corregirla
@@ -155,38 +158,50 @@ export const ModernLoginScreen: React.FC = () => {
               )}
 
               {/* Direct Email and Password Form */}
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} noValidate className="space-y-4" data-testid="login-form">
                 
                 {/* Email Field */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  <label htmlFor="login-email" className="block text-xs font-bold text-slate-300 mb-1.5">
                     Correo Electrónico
                   </label>
                   <input
+                    id="login-email"
                     type="email"
-                    required
+                    inputMode="email"
+                    maxLength={EMAIL_MAX}
                     value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
+                    onChange={(e) => { setEmailInput(e.target.value.replace(/\s/g, '')); setErrorMessage(null); }}
+                    onBlur={() => setTouched(t => ({ ...t, email: true }))}
+                    aria-invalid={!!showEmailError}
                     placeholder="tu-correo@empresa.com"
                     autoComplete="username"
-                    className="w-full bg-[#050C18] border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className={`w-full bg-[#050C18] border rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors ${
+                      showEmailError ? 'border-rose-500' : 'border-slate-700/80 focus:border-emerald-500'
+                    }`}
                   />
+                  <FieldError msg={showEmailError} />
                 </div>
 
                 {/* Password Field with Eye Toggle */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  <label htmlFor="login-password" className="block text-xs font-bold text-slate-300 mb-1.5">
                     Contraseña
                   </label>
                   <div className="relative">
                     <input
+                      id="login-password"
                       type={showPassword ? 'text' : 'password'}
-                      required
+                      maxLength={128}
                       value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
+                      onChange={(e) => { setPasswordInput(e.target.value); setErrorMessage(null); }}
+                      onBlur={() => setTouched(t => ({ ...t, password: true }))}
+                      aria-invalid={!!showPasswordError}
                       placeholder="••••••••••••"
                       autoComplete="current-password"
-                      className="w-full bg-[#050C18] border border-slate-700/80 rounded-xl pl-4 pr-11 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                      className={`w-full bg-[#050C18] border rounded-xl pl-4 pr-11 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors font-mono ${
+                        showPasswordError ? 'border-rose-500' : 'border-slate-700/80 focus:border-emerald-500'
+                      }`}
                     />
                     <button
                       type="button"
@@ -200,6 +215,7 @@ export const ModernLoginScreen: React.FC = () => {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  <FieldError msg={showPasswordError} />
                 </div>
 
                 {/* Submit Button */}
@@ -232,12 +248,12 @@ export const ModernLoginScreen: React.FC = () => {
       {/* Footer */}
       <footer className="relative z-10 w-full border-t border-slate-800/60 py-5 px-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3 max-w-7xl mx-auto">
         <p>Copyright 2026 © COLORLINK S.A.S. • Control Interno & Auditoría Operacional</p>
-        <span className="text-[11px] text-slate-500 font-mono">Medellín • Valle de Aburrá, Colombia</span>
+        <span className="text-[11px] text-slate-500 font-mono">Medellín, Colombia</span>
       </footer>
 
       {/* FORGOT PASSWORD DIALOG */}
       {forgotPasswordNotice && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <ModalBackdrop onClose={() => setForgotPasswordNotice(false)} label="Recuperación de contraseña">
           <div className="bg-[#0b172a] border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl text-white space-y-4">
             <h3 className="font-bold text-base text-white flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-emerald-400" />
@@ -247,13 +263,14 @@ export const ModernLoginScreen: React.FC = () => {
               Por políticas de seguridad interna de ColorLink, para restablecer tus credenciales debes pedirle al <strong>Administrador</strong> que te asigne una contraseña temporal desde el módulo <em>Gestión de Empleados</em> (botón <em>Editar</em> de tu ficha). Después podrás cambiarla en <em>Mi Perfil</em>.
             </p>
             <button
+              type="button"
               onClick={() => setForgotPasswordNotice(false)}
               className="w-full py-2.5 bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs cursor-pointer"
             >
               Entendido
             </button>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
     </div>
   );

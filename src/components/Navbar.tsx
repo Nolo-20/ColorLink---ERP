@@ -68,8 +68,10 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
   // Real-time search query matching
   const query = searchInput.trim().toLowerCase();
 
-  // Solo se buscan módulos que el rol puede abrir
-  const canProjects = hasModuleAccess('proyectos');
+  // Solo se buscan módulos que el rol puede abrir; los proyectos se abren en el módulo que el rol tenga
+  const projectTab = hasModuleAccess('proyectos') ? 'proyectos' : hasModuleAccess('calidad') ? 'calidad'
+    : hasModuleAccess('despachos') ? 'despachos' : hasModuleAccess('pipeline') ? 'pipeline' : null;
+  const canProjects = projectTab !== null;
   const canOrders = hasModuleAccess('pedidos');
   const canInventory = hasModuleAccess('inventarios');
 
@@ -78,7 +80,8 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
         (p.nombreProyecto || '').toLowerCase().includes(query) ||
         (p.empresa?.razonSocial || '').toLowerCase().includes(query) ||
         (p.color && p.color.toLowerCase().includes(query)) ||
-        (p.despacho?.numeroGuia && p.despacho.numeroGuia.toLowerCase().includes(query))
+        (p.despacho?.numeroGuia && p.despacho.numeroGuia.toLowerCase().includes(query)) ||
+        (p.usuario && `${p.usuario.nombre} ${p.usuario.apellido}`.toLowerCase().includes(query))
       ).slice(0, 4)
     : [];
 
@@ -86,6 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
     ? pedidos.filter(p => 
         p.pedidoId.toLowerCase().includes(query) ||
         p.clienteNombre.toLowerCase().includes(query) ||
+        p.clienteEmail.toLowerCase().includes(query) ||
         (p.codigoRetiro && p.codigoRetiro.toLowerCase().includes(query)) ||
         (p.sucursalRetiro && p.sucursalRetiro.toLowerCase().includes(query))
       ).slice(0, 4)
@@ -110,7 +114,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
 
   const handleSelectProject = (p: typeof proyectos[0]) => {
     setSelectedProyecto(p);
-    setActiveTab('proyectos');
+    if (projectTab) setActiveTab(projectTab);
     setIsSearchOpen(false);
     setMobileSearchOpen(false);
     setSearchInput('');
@@ -180,7 +184,13 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
     setSearchQuery('');
   };
 
-  const searchPlaceholder = 'Buscar obras, clientes, pedidos RET, cuñetes, lotes... (Enter para ir)';
+  const SEARCH_MAX = 80;
+  const searchPlaceholder = 'Buscar obras, clientes, pedidos, productos, lotes… (Enter para ir)';
+  const onSearchChange = (v: string) => {
+    const limpio = v.replace(/\s{2,}/g, ' ').slice(0, SEARCH_MAX);
+    setSearchInput(limpio);
+    setSearchQuery(limpio.trim());
+  };
 
   const moduleInfo = getModuleTitle();
   const ModuleIcon = moduleInfo.icon;
@@ -215,13 +225,15 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
                               <div className="truncate">
                                 <span className="font-bold block truncate">{p.nombreProyecto}</span>
                                 <span className={`text-[10px] truncate block ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
-                                  {p.empresa?.razonSocial} • {p.color}
+                                  {[p.empresa?.razonSocial, p.color].filter(Boolean).join(' • ') || 'Sin datos de cliente'}
                                 </span>
                               </div>
                             </div>
-                            <span className="text-[10px] font-bold text-emerald-500 font-mono ml-2">
-                              {p.area} m²
-                            </span>
+                            {p.area != null && (
+                              <span className="text-[10px] font-bold text-emerald-500 font-mono ml-2 whitespace-nowrap">
+                                {p.area} m²
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -250,7 +262,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
                               <div className="truncate">
                                 <span className="font-bold block truncate">Pedido #{o.pedidoId} — {o.clienteNombre}</span>
                                 <span className={`text-[10px] truncate block ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
-                                  {o.sucursalRetiro || o.direccionEntrega}
+                                  {o.sucursalRetiro || o.direccionEntrega || (o.modalidadEntrega === 'recogida_sucursal' ? 'Retiro en sucursal' : 'Domicilio')}
                                 </span>
                               </div>
                             </div>
@@ -287,13 +299,15 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
                               <div className="truncate">
                                 <span className="font-bold block truncate">{prod.nombre}</span>
                                 <span className={`text-[10px] truncate block ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
-                                  {prod.presentacion} • Ref: {prod.codigoColorLink}
+                                  {[prod.presentacion, prod.categoria, prod.codigoColorLink ? `Ref: ${prod.codigoColorLink}` : ''].filter(Boolean).join(' • ') || 'Producto del catálogo'}
                                 </span>
                               </div>
                             </div>
-                            <span className="text-[10px] font-bold text-slate-400 font-mono">
-                              ${prod.precio?.toLocaleString('es-CO')}
-                            </span>
+                            {prod.precio != null && (
+                              <span className="text-[10px] font-bold text-slate-400 font-mono whitespace-nowrap">
+                                ${prod.precio.toLocaleString('es-CO')}
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -319,9 +333,9 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
                             <div className="flex items-center gap-2 truncate">
                               <MapPin className="w-4 h-4 text-amber-500 flex-shrink-0" />
                               <div className="truncate">
-                                <span className="font-bold block truncate">Lote: {inv.numeroLote}</span>
+                                <span className="font-bold block truncate">Lote: {inv.numeroLote || 'sin número'}</span>
                                 <span className={`text-[10px] truncate block ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
-                                  {inv.nombreBodega} • {inv.producto?.nombre}
+                                  {[inv.nombreBodega, inv.producto?.nombre].filter(Boolean).join(' • ')}
                                 </span>
                               </div>
                             </div>
@@ -406,10 +420,11 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
               onFocus={() => setIsSearchOpen(true)}
               onKeyDown={handleKeyDown}
               onChange={(e) => {
-                setSearchInput(e.target.value);
-                setSearchQuery(e.target.value);
+                onSearchChange(e.target.value);
                 setIsSearchOpen(true);
               }}
+              maxLength={SEARCH_MAX}
+              aria-label="Búsqueda global"
               placeholder={searchPlaceholder}
               className={`w-full rounded-xl pl-9 pr-8 py-2 text-xs transition-colors focus:outline-none focus:border-emerald-500 ${
                 theme === 'light'
@@ -420,6 +435,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
 
             {searchInput && (
               <button
+                type="button"
                 onClick={clearSearch}
                 aria-label="Limpiar búsqueda"
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
@@ -446,6 +462,8 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
         <div className="flex items-center gap-3">
           {/* Mobile Search Button */}
           <button
+            type="button"
+            aria-label="Buscar"
             onClick={() => setMobileSearchOpen(!mobileSearchOpen)}
             className={`md:hidden p-2 rounded-xl border transition-all cursor-pointer ${
               theme === 'light'
@@ -459,6 +477,8 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
           
           {/* Theme Switcher Button (Sun / Moon) */}
           <button
+            type="button"
+            aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
             onClick={toggleTheme}
             className={`p-2 rounded-xl border transition-all cursor-pointer ${
               theme === 'light'
@@ -474,11 +494,13 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
             )}
           </button>
 
-          {/* City indicator */}
-          <div className="hidden sm:flex items-center gap-1.5 text-xs">
-            <MapPin className="w-3.5 h-3.5 text-emerald-500" />
-            <span className={`font-medium ${theme === 'light' ? 'text-slate-600' : 'text-slate-300'}`}>Valle de Aburrá</span>
-          </div>
+          {/* Sede real del colaborador (solo si está registrada) */}
+          {currentUser.city && (
+            <div className="hidden lg:flex items-center gap-1.5 text-xs" title="Tu sede registrada">
+              <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+              <span className={`font-medium ${theme === 'light' ? 'text-slate-600' : 'text-slate-300'}`}>{currentUser.city}</span>
+            </div>
+          )}
 
           {/* User Profile Pill (Production - Clickable to Manage Profile) */}
           <button
@@ -524,10 +546,9 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
               autoFocus
               value={searchInput}
               onKeyDown={handleKeyDown}
-              onChange={(e) => {
-                setSearchInput(e.target.value);
-                setSearchQuery(e.target.value);
-              }}
+              onChange={(e) => onSearchChange(e.target.value)}
+              maxLength={SEARCH_MAX}
+              aria-label="Búsqueda global"
               placeholder={searchPlaceholder}
               className={`w-full rounded-xl pl-9 pr-8 py-2 text-xs focus:outline-none focus:border-emerald-500 ${
                 theme === 'light'
@@ -537,6 +558,7 @@ export const Navbar: React.FC<NavbarProps> = ({ collapsed, onToggleSidebar }) =>
             />
             {searchInput && (
               <button
+                type="button"
                 onClick={clearSearch}
                 aria-label="Limpiar búsqueda"
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"

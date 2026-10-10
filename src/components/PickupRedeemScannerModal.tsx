@@ -14,6 +14,11 @@ import {
   Clock 
 } from 'lucide-react';
 import { PedidoTienda } from '../types/database';
+import { ModalBackdrop, FieldError } from './ui';
+import { normalizarCodigoRetiro } from '../validation';
+
+const CODIGO_MAX = 40;
+const ERROR_FORMATO = 'El código debe tener 8 caracteres (números y letras de la A a la F), el número de pedido CL-XXXXXXXX o el QR completo.';
 
 export const PickupRedeemScannerModal: React.FC = () => {
   const { 
@@ -33,6 +38,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [codeTouched, setCodeTouched] = useState(false);
 
   // Cada vez que se abre el escáner empieza limpio
   useEffect(() => {
@@ -43,18 +49,19 @@ export const PickupRedeemScannerModal: React.FC = () => {
       setSuccessMessage(null);
       setConfirming(false);
       setSearching(false);
+      setCodeTouched(false);
     }
   }, [redeemModalOpen]);
 
   // Coincidencia exacta: el código corto de 8 caracteres, el código completo del QR o el número de pedido
   const findByCode = (list: PedidoTienda[], raw: string) => {
-    const cleanCode = raw.trim().replace(/\s+/g, '').toUpperCase();
-    if (!cleanCode) return undefined;
+    const code = normalizarCodigoRetiro(raw);
+    if (!code) return undefined;
     return list.find(p =>
       p.modalidadEntrega === 'recogida_sucursal' && (
-        p.codigoRetiro?.toUpperCase() === cleanCode ||
-        p.qrCodeData?.toUpperCase() === cleanCode ||
-        p.pedidoId.toUpperCase() === cleanCode
+        p.codigoRetiro?.toUpperCase() === code ||
+        p.qrCodeData?.toUpperCase() === code ||
+        p.pedidoId.toUpperCase() === `CL-${code}`
       )
     );
   };
@@ -67,7 +74,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
     if (found) {
       setResultId(found.ordenId);
     } else {
-      setErrorMessage(`No se encontró ningún pedido de retiro con el código "${pendingLookup}". Verifica con el cliente.`);
+      setErrorMessage(`No se encontró ningún pedido de retiro con el código "${pendingLookup.length > 12 ? pendingLookup.slice(0, 8) + '…' : pendingLookup}". Verifica con el cliente.`);
     }
     setPendingLookup(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,11 +82,16 @@ export const PickupRedeemScannerModal: React.FC = () => {
 
   if (!redeemModalOpen) return null;
 
+  const codigoNormalizado = normalizarCodigoRetiro(inputCode);
+  const errorCodigo = !inputCode.trim() ? 'Escribe o escanea el código de retiro.' : codigoNormalizado ? '' : ERROR_FORMATO;
+  const cerrar = () => { if (!confirming) setRedeemModalOpen(false); };
+
   const handleSearchAndValidate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (searching) return;
     setErrorMessage(null);
     setSuccessMessage(null);
+    if (errorCodigo) { setCodeTouched(true); return; }
 
     const found = findByCode(pedidos, inputCode);
     if (found) {
@@ -94,7 +106,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
       await refreshData();
     } finally {
       setSearching(false);
-      setPendingLookup(inputCode);
+      setPendingLookup(codigoNormalizado);
     }
   };
 
@@ -119,8 +131,8 @@ export const PickupRedeemScannerModal: React.FC = () => {
   const waitingPickupOrders = pedidos.filter(p => p.modalidadEntrega === 'recogida_sucursal' && p.estadoPedido === 'listo_sucursal');
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#0b172a] border border-slate-700 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col p-6 shadow-2xl relative text-white">
+    <ModalBackdrop onClose={cerrar} bloqueado={confirming} label="Canje de retiro en sucursal">
+      <div className="bg-[#0b172a] border border-slate-700 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col p-4 sm:p-6 shadow-2xl relative text-white">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -137,7 +149,9 @@ export const PickupRedeemScannerModal: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setRedeemModalOpen(false)}
+            type="button"
+            onClick={cerrar}
+            aria-label="Cerrar"
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -148,28 +162,35 @@ export const PickupRedeemScannerModal: React.FC = () => {
         <div className="overflow-y-auto space-y-5 my-4 pr-1 flex-1">
           
           {/* Code Search Input Form */}
-          <form onSubmit={handleSearchAndValidate} className="space-y-3">
+          <form onSubmit={handleSearchAndValidate} noValidate className="space-y-3" data-testid="redeem-form">
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
+              <label htmlFor="redeem-code" className="block text-xs font-bold text-slate-300 mb-1.5">
                 Ingresa el Código de Retiro del Cliente o Escanea QR
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <div className="relative flex-1">
                   <input
+                    id="redeem-code"
                     type="text"
-                    required
+                    maxLength={CODIGO_MAX}
+                    spellCheck={false}
                     value={inputCode}
-                    onChange={(e) => setInputCode(e.target.value)}
+                    onChange={(e) => { setInputCode(e.target.value.slice(0, CODIGO_MAX)); setErrorMessage(null); setResultId(null); }}
+                    onBlur={() => { if (inputCode) setCodeTouched(true); }}
+                    aria-invalid={!!(codeTouched && errorCodigo)}
                     placeholder="Código de 8 caracteres o escanea el QR"
                     autoFocus
                     autoComplete="off"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-emerald-300 focus:outline-none focus:border-emerald-500 uppercase"
+                    className={`w-full bg-slate-900 border rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-emerald-300 focus:outline-none uppercase ${
+                      codeTouched && errorCodigo ? 'border-rose-500' : 'border-slate-700 focus:border-emerald-500'
+                    }`}
                   />
+                  <FieldError msg={codeTouched ? errorCodigo : ''} />
                 </div>
                 <button
                   type="submit"
-                  disabled={searching}
-                  className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
+                  disabled={searching || (codeTouched && !!errorCodigo)}
+                  className="px-5 py-3 justify-center sm:self-start bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20"
                 >
                   <Search className="w-4 h-4" />
                   <span>{searching ? 'Buscando…' : 'Verificar'}</span>
@@ -190,6 +211,7 @@ export const PickupRedeemScannerModal: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setInputCode(p.codigoRetiro || p.pedidoId);
+                        setCodeTouched(false);
                         setResultId(p.ordenId);
                         setErrorMessage(null);
                         setSuccessMessage(null);
@@ -349,13 +371,14 @@ export const PickupRedeemScannerModal: React.FC = () => {
         {/* Footer */}
         <div className="pt-3 border-t border-slate-800 text-right">
           <button
-            onClick={() => setRedeemModalOpen(false)}
+            type="button"
+            onClick={cerrar}
             className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
           >
             Cerrar Escáner
           </button>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };

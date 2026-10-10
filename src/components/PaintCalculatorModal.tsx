@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Calculator, X, Layers, Droplets, CheckCircle2 } from 'lucide-react';
+import { Calculator, X } from 'lucide-react';
+import { ModalBackdrop, FieldError } from './ui';
+import { limpiarDecimal, aNumero, errorRango, AREA_MAX_M2, MANOS_MIN, MANOS_MAX } from '../validation';
 
 export const PaintCalculatorModal: React.FC = () => {
   const { calculatorModalOpen, setCalculatorModalOpen, productos } = useApp();
 
-  const [area, setArea] = useState<number>(500);
+  const [area, setArea] = useState<string>('500');
   const [manos, setManos] = useState<number>(2);
   // Se elige la LÍNEA de producto (nombre); sus presentaciones Cuñete/Galón dan los precios reales
   const [lineaNombre, setLineaNombre] = useState<string>('');
   const [desperdicioPct, setDesperdicioPct] = useState<number>(6);
 
   if (!calculatorModalOpen) return null;
+  const cerrar = () => setCalculatorModalOpen(false);
 
   const lineas = Array.from(new Set(productos.map(p => p.nombre))).sort((a, b) => a.localeCompare(b, 'es'));
   const nombreActivo = lineas.includes(lineaNombre) ? lineaNombre : lineas[0];
@@ -21,19 +24,20 @@ export const PaintCalculatorModal: React.FC = () => {
   // El catálogo llega del servidor: si aún no carga o está vacío, no hay nada que calcular
   if (!selectedProd) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+      <ModalBackdrop onClose={cerrar} label="Calculadora de cuñetes">
         <div className="bg-[#0b172a] border border-slate-700 rounded-2xl w-full max-w-sm p-6 text-white text-sm">
           <p className="mb-4 text-slate-300">El catálogo de productos aún no está disponible. Inténtalo de nuevo en unos segundos.</p>
-          <button onClick={() => setCalculatorModalOpen(false)} className="px-4 py-2 bg-emerald-500 text-slate-950 font-bold rounded-lg">Cerrar</button>
+          <button type="button" onClick={cerrar} className="px-4 py-2 bg-emerald-500 text-slate-950 font-bold rounded-lg cursor-pointer">Cerrar</button>
         </div>
-      </div>
+      </ModalBackdrop>
     );
   }
 
   const rendimientoM2 = selectedProd.rendimientoM2 && selectedProd.rendimientoM2 > 0 ? selectedProd.rendimientoM2 : null;
 
   // Misma fórmula que el servidor (/api/projects/:id/quote)
-  const areaValida = Number(area) > 0 ? Number(area) : 0;
+  const errArea = errorRango(area, 'El área', { min: 1, max: AREA_MAX_M2, unidad: 'm²' });
+  const areaValida = errArea ? 0 : (aNumero(area) as number);
   const galonesConDesperdicio = rendimientoM2
     ? Number((((areaValida * manos) / rendimientoM2) * (1 + desperdicioPct / 100)).toFixed(1))
     : 0;
@@ -51,11 +55,13 @@ export const PaintCalculatorModal: React.FC = () => {
     : null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#0b172a] border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative text-white">
+    <ModalBackdrop onClose={cerrar} label="Calculadora de cuñetes">
+      <div className="bg-[#0b172a] border border-slate-700 rounded-2xl w-full max-w-lg p-5 sm:p-6 shadow-2xl relative text-white my-auto">
         <button
-          onClick={() => setCalculatorModalOpen(false)}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white"
+          type="button"
+          onClick={cerrar}
+          aria-label="Cerrar"
+          className="absolute top-4 right-4 text-slate-400 hover:text-white cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -65,22 +71,25 @@ export const PaintCalculatorModal: React.FC = () => {
           <h3 className="font-bold text-lg text-white">Calculadora Técnica de Cuñetes</h3>
         </div>
         <p className="text-xs text-slate-400 mb-5 leading-relaxed">
-          Dosificación volumétrica de recubrimientos para constructoras y obras en el Valle de Aburrá.
+          Estimado rápido de cuñetes y galones con el rendimiento y los precios del catálogo. No guarda nada.
         </p>
 
         <div className="space-y-4 text-xs">
           <div>
-            <label className="block text-slate-300 font-semibold mb-1">
+            <label htmlFor="calc-area" className="block text-slate-300 font-semibold mb-1">
               Área de Superficie (m²)
             </label>
             <input
-              type="number"
-              min={1}
-              step="any"
+              id="calc-area"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
               value={area}
-              onChange={(e) => setArea(Number(e.target.value))}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
+              onChange={(e) => setArea(limpiarDecimal(e.target.value, 2, 6))}
+              aria-invalid={!!errArea}
+              className={`w-full bg-slate-900 border rounded-lg px-3 py-2 text-white font-mono focus:outline-none ${errArea ? 'border-rose-500' : 'border-slate-700 focus:border-emerald-500'}`}
             />
+            <FieldError msg={errArea} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -93,9 +102,9 @@ export const PaintCalculatorModal: React.FC = () => {
                 onChange={(e) => setManos(Number(e.target.value))}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
               >
-                <option value={1}>1 Mano</option>
-                <option value={2}>2 Manos (Recomendado)</option>
-                <option value={3}>3 Manos</option>
+                {Array.from({ length: MANOS_MAX - MANOS_MIN + 1 }, (_, i) => MANOS_MIN + i).map(n => (
+                  <option key={n} value={n}>{n === 1 ? '1 Mano' : `${n} Manos`}{n === 2 ? ' (Recomendado)' : ''}</option>
+                ))}
               </select>
             </div>
 
@@ -136,7 +145,7 @@ export const PaintCalculatorModal: React.FC = () => {
           </div>
 
           {/* Results Box */}
-          {!rendimientoM2 ? (
+          {errArea ? null : !rendimientoM2 ? (
             <div className="bg-slate-900 border border-amber-500/40 rounded-xl p-4 text-amber-300">
               Esta línea no tiene rendimiento (m²/galón) configurado en el catálogo; no se puede calcular por área.
             </div>
@@ -178,7 +187,7 @@ export const PaintCalculatorModal: React.FC = () => {
           <div className="pt-2">
             <button
               type="button"
-              onClick={() => setCalculatorModalOpen(false)}
+              onClick={cerrar}
               className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
             >
               Cerrar
@@ -186,6 +195,6 @@ export const PaintCalculatorModal: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };

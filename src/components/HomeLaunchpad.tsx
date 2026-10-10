@@ -128,8 +128,10 @@ export const HomeLaunchpad: React.FC = () => {
     {
       id: 'inventarios',
       title: 'Inventarios & Bodegas',
-      subtitle: 'Lotes & Tintometría Lab',
-      description: 'Control de existencias por bodegas en Medellín, Itagüí y Bello. Trazabilidad de lotes y formulación computarizada de color.',
+      subtitle: 'Lotes & Existencias',
+      description: numBodegas > 0
+        ? `Control de existencias por bodega (${Array.from(new Set(inventarios.map(i => i.nombreBodega).filter(Boolean))).slice(0, 3).join(', ')}${numBodegas > 3 ? '…' : ''}) y trazabilidad de lotes.`
+        : 'Control de existencias por bodega y trazabilidad de lotes.',
       badge: `${numBodegas} ${numBodegas === 1 ? 'Bodega' : 'Bodegas'} con inventario`,
       badgeColor: 'bg-cyan-950/80 text-cyan-300 border-cyan-500/40',
       cardBg: 'from-[#0b1f2b] to-[#081520] hover:from-[#0d2737] hover:to-[#0b1b2a]',
@@ -141,8 +143,8 @@ export const HomeLaunchpad: React.FC = () => {
     {
       id: 'despachos',
       title: 'Módulo de Despachos',
-      subtitle: 'Flota Valle de Aburrá',
-      description: 'Asignación de vehículos y conductores, cálculo de tiempos de tránsito por municipio y emisión de remisiones con firma en terreno.',
+      subtitle: 'Entregas a Obra',
+      description: 'Asignación de vehículo y conductor a los proyectos aprobados, remisión imprimible y confirmación de entrega en obra.',
       badge: inTransit > 0 ? `${inTransit} ${inTransit === 1 ? 'Despacho' : 'Despachos'} en Ruta` : 'Sin despachos en ruta',
       badgeColor: inTransit > 0 ? 'bg-orange-950/80 text-orange-300 border-orange-500/50' : 'bg-slate-800 text-slate-300 border-slate-700',
       cardBg: 'from-[#1f1710] to-[#120e0a] hover:from-[#2b2016] hover:to-[#18120c]',
@@ -155,7 +157,7 @@ export const HomeLaunchpad: React.FC = () => {
       id: 'reportes',
       title: 'Reportes & Métricas',
       subtitle: 'KPIs Ejecutivos ERP',
-      description: 'Analítica en tiempo real de cuñetes producidos, facturación en COP, índice de conformidad de peritaje y tiempos logísticos.',
+      description: 'Cuñetes cotizados, facturación cotizada en COP, índice de conformidad de calidad y existencias en bodega.',
       badge: 'Analítica en Vivo',
       badgeColor: 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40',
       cardBg: 'from-[#0d1f19] to-[#091511] hover:from-[#112a22] hover:to-[#0c1c17]',
@@ -517,7 +519,8 @@ export const HomeLaunchpad: React.FC = () => {
                   <button
                     onClick={() => {
                       setSelectedProyecto(p);
-                      setActiveTab(hasModuleAccess('proyectos') ? 'proyectos' : 'pipeline');
+                      setActiveTab(hasModuleAccess('proyectos') ? 'proyectos' : hasModuleAccess('calidad') ? 'calidad'
+                        : hasModuleAccess('despachos') ? 'despachos' : 'pipeline');
                     }}
                     className={`p-2 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
                       isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'

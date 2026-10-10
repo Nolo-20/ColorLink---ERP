@@ -1,5 +1,12 @@
 import React, { useRef } from 'react';
 import { useApp } from '../context/AppContext';
+import { ModalBackdrop, FieldError } from './ui';
+import { limpiarLetras, soloDigitos, errorNombrePersona, normalizarTexto } from '../validation';
+
+const RECIBE_MIN = 3;
+const RECIBE_MAX = 80;
+const DOC_MIN = 6;
+const DOC_MAX = 12;
 import { Proyecto } from '../types/database';
 import { 
   FileText, 
@@ -19,9 +26,16 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
   const { confirmarEntrega, currentUser } = useApp();
   const receiptRef = useRef<HTMLDivElement>(null);
 
-  const [recibidoPor, setRecibidoPor] = React.useState(proyecto.despacho?.recibidoPor || '');
-  const [docRecibe, setDocRecibe] = React.useState(proyecto.despacho?.documentoRecibe || '');
+  const [recibidoPor, setRecibidoPor] = React.useState(limpiarLetras(proyecto.despacho?.recibidoPor || '', RECIBE_MAX));
+  const [docRecibe, setDocRecibe] = React.useState(soloDigitos(proyecto.despacho?.documentoRecibe || '', DOC_MAX));
   const [saving, setSaving] = React.useState(false);
+  const [touched, setTouched] = React.useState<{ nombre?: boolean; doc?: boolean }>({});
+
+  const errNombre = errorNombrePersona(recibidoPor, 'El nombre de quien recibe', RECIBE_MIN, RECIBE_MAX);
+  const errDoc = docRecibe && (docRecibe.length < DOC_MIN || docRecibe.length > DOC_MAX)
+    ? `El documento debe tener entre ${DOC_MIN} y ${DOC_MAX} números.` : '';
+  const invalido = !!(errNombre || errDoc);
+  const cerrar = () => { if (!saving) onClose(); };
 
   const latestQuote = proyecto.cotizaciones && proyecto.cotizaciones[0];
   const isDelivered = !!proyecto.despacho?.fechaEntrega;
@@ -35,10 +49,11 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
 
   const handleConfirmSignature = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving || !recibidoPor.trim()) return;
+    if (saving) return;
+    if (invalido) { setTouched({ nombre: true, doc: true }); return; }
     setSaving(true);
     try {
-      await confirmarEntrega(proyecto.proyectoId, recibidoPor.trim(), docRecibe.trim());
+      await confirmarEntrega(proyecto.proyectoId, normalizarTexto(recibidoPor), docRecibe);
     } finally {
       setSaving(false);
     }
@@ -49,11 +64,11 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#0b172a] border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col p-6 shadow-2xl relative text-white">
+    <ModalBackdrop onClose={cerrar} bloqueado={saving} label="Remisión de despacho">
+      <div className="bg-[#0b172a] border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col p-4 sm:p-6 shadow-2xl relative text-white">
         
         {/* Modal Top Bar */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-800" data-no-print>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
               <FileText className="w-4 h-4" />
@@ -68,14 +83,19 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handlePrint}
-              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-              title="Imprimir Remisión"
+              disabled={!d}
+              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              title={d ? 'Imprimir remisión' : 'El proyecto aún no tiene despacho para imprimir'}
+              aria-label="Imprimir remisión"
             >
               <Printer className="w-4 h-4" />
             </button>
             <button
-              onClick={onClose}
+              type="button"
+              onClick={cerrar}
+              aria-label="Cerrar"
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -84,7 +104,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
         </div>
 
         {/* Printable Official Receipt Body */}
-        <div ref={receiptRef} className="overflow-y-auto space-y-5 my-4 pr-1 flex-1 bg-slate-900/60 p-5 rounded-xl border border-slate-800 text-xs">
+        <div ref={receiptRef} data-printable className="overflow-y-auto space-y-5 my-4 pr-1 flex-1 bg-slate-900/60 p-5 rounded-xl border border-slate-800 text-xs">
           
           {/* Header Document */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
@@ -208,7 +228,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
 
           {/* Receiver Sign / Delivery Form */}
           {!isDelivered ? (
-            <form onSubmit={handleConfirmSignature} className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-4 space-y-3">
+            <form onSubmit={handleConfirmSignature} noValidate data-no-print data-testid="delivery-form" className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-4 space-y-3">
               <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span>Confirmación de Recibo en Terreno / Firma Digital</span>
@@ -219,36 +239,52 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Nombre de quien recibe en obra
+                  <label htmlFor="recibe-nombre" className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Nombre de quien recibe en obra *
                   </label>
                   <input
+                    id="recibe-nombre"
                     type="text"
-                    required
-                    placeholder="Ej: Residente de obra"
+                    autoComplete="off"
+                    maxLength={RECIBE_MAX}
+                    placeholder="Ej: Carlos Gómez"
                     value={recibidoPor}
-                    onChange={(e) => setRecibidoPor(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    onChange={(e) => setRecibidoPor(limpiarLetras(e.target.value, RECIBE_MAX))}
+                    onBlur={() => setTouched(t => ({ ...t, nombre: true }))}
+                    aria-invalid={!!(touched.nombre && errNombre)}
+                    className={`w-full bg-slate-900 border rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none ${
+                      touched.nombre && errNombre ? 'border-rose-500' : 'border-slate-700 focus:border-emerald-500'
+                    }`}
                   />
+                  <FieldError msg={touched.nombre ? errNombre : ''} />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Cédula / Documento de Identidad (opcional)
+                  <label htmlFor="recibe-doc" className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Cédula de quien recibe (opcional)
                   </label>
                   <input
+                    id="recibe-doc"
                     type="text"
-                    placeholder="Opcional"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={DOC_MAX}
+                    placeholder="Solo números"
                     value={docRecibe}
-                    onChange={(e) => setDocRecibe(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                    onChange={(e) => setDocRecibe(soloDigitos(e.target.value, DOC_MAX))}
+                    onBlur={() => setTouched(t => ({ ...t, doc: true }))}
+                    aria-invalid={!!(touched.doc && errDoc)}
+                    className={`w-full bg-slate-900 border rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none ${
+                      touched.doc && errDoc ? 'border-rose-500' : 'border-slate-700 focus:border-emerald-500'
+                    }`}
                   />
+                  <FieldError msg={touched.doc ? errDoc : ''} />
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={saving || !d}
+                disabled={saving || !d || invalido}
                 className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
@@ -274,15 +310,16 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
         </div>
 
         {/* Modal Bottom Actions */}
-        <div className="pt-2 text-right">
+        <div className="pt-2 text-right" data-no-print>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={cerrar}
             className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
           >
             Cerrar Vista de Remisión
           </button>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };

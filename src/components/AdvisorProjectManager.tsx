@@ -20,6 +20,20 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { ProjectChatPanel } from './ProjectChatPanel';
+import { FieldError, bordeCampo } from './ui';
+import {
+  limpiarDecimal, aNumero, errorRango, errorTexto, AREA_MAX_M2, MANOS_MIN, MANOS_MAX, DESCUENTO_MAX_PCT,
+} from '../validation';
+
+const MOTIVO_IMAGEN_MIN = 5;
+const MOTIVO_IMAGEN_MAX = 500;
+const MANOS_OPCIONES: Record<number, string> = {
+  1: '1 mano (mantenimiento)',
+  2: '2 manos (estándar recomendado)',
+  3: '3 manos (sustrato poroso o cambio drástico)',
+  4: '4 manos (cambio de color muy contrastante)',
+  5: '5 manos (sistemas especiales)',
+};
 
 export const AdvisorProjectManager: React.FC = () => {
   const { 
@@ -56,10 +70,12 @@ export const AdvisorProjectManager: React.FC = () => {
   // Solo se cotiza con productos que tienen presentación Cuñete (el servidor arma cuñetes + galones de la misma línea)
   const productosCunete = productos.filter(p => p.presentacion?.includes('Cuñete'));
 
-  const [calcArea, setCalcArea] = useState<number>(activeProject?.area ?? 0);
+  // Los campos numéricos se guardan como texto ya limpio: nunca se envía NaN ni un valor vacío
+  const [calcArea, setCalcArea] = useState<string>(activeProject?.area ? String(activeProject.area) : '');
   const [calcManos, setCalcManos] = useState<number>(2);
   const [calcProductoId, setCalcProductoId] = useState<string>(productosCunete[0]?.productoId || '');
-  const [calcDescuento, setCalcDescuento] = useState<number>(activeProject?.descuentoAsesorPct ?? 0);
+  const [calcDescuento, setCalcDescuento] = useState<string>(String(activeProject?.descuentoAsesorPct ?? 0));
+  const [calcTouched, setCalcTouched] = useState<{ area?: boolean; descuento?: boolean }>({});
   const [cotizando, setCotizando] = useState(false);
   const [enviandoCalidad, setEnviandoCalidad] = useState(false);
   const [pidiendoImagenBusy, setPidiendoImagenBusy] = useState(false);
@@ -74,8 +90,10 @@ export const AdvisorProjectManager: React.FC = () => {
   // Al cambiar de proyecto (o cuando llega del servidor) se cargan su área y su descuento reales
   useEffect(() => {
     if (!activeProject) return;
-    setCalcArea(activeProject.area ?? 0);
-    setCalcDescuento(activeProject.descuentoAsesorPct ?? 0);
+    setCalcArea(activeProject.area ? String(activeProject.area) : '');
+    setCalcDescuento(String(Math.min(DESCUENTO_MAX_PCT, activeProject.descuentoAsesorPct ?? 0)));
+    setCalcManos(2);
+    setCalcTouched({});
   }, [activeProject?.proyectoId]);
 
   const [imagen, setImagen] = useState<string | null>(null);
@@ -96,20 +114,28 @@ export const AdvisorProjectManager: React.FC = () => {
     return () => { cancelado = true; };
   }, [activeProject?.proyectoId]);
 
+  const errorMotivoImagen = errorTexto(motivoImagen, 'El motivo', { min: MOTIVO_IMAGEN_MIN, max: MOTIVO_IMAGEN_MAX, requerido: true });
+  const [motivoTouched, setMotivoTouched] = useState(false);
+
   const handlePedirCambioImagen = async () => {
-    if (!activeProject || motivoImagen.trim().length < 5) {
-      showToast('Explica brevemente por qué la imagen no sirve (mínimo 5 caracteres).');
-      return;
-    }
-    if (pidiendoImagenBusy) return;
+    if (!activeProject || pidiendoImagenBusy) return;
+    if (errorMotivoImagen) { setMotivoTouched(true); return; }
     setPidiendoImagenBusy(true);
     try {
       const ok = await solicitarCambioImagen(activeProject.proyectoId, motivoImagen.trim());
-      if (ok) { setMotivoImagen(''); setPidiendoImagen(false); }
+      if (ok) { setMotivoImagen(''); setPidiendoImagen(false); setMotivoTouched(false); }
     } finally {
       setPidiendoImagenBusy(false);
     }
   };
+
+  // Validación de la cotización (mismos límites que POST /api/projects/:id/quote + reglas comerciales)
+  const errArea = errorRango(calcArea, 'El área', { min: 0.01, max: AREA_MAX_M2, unidad: 'm²' })
+    || (aNumero(calcArea) === 0 ? 'El área debe ser mayor a 0 m².' : '');
+  const errDescuento = errorRango(calcDescuento, 'El descuento', { min: 0, max: DESCUENTO_MAX_PCT, unidad: '%' });
+  const errManos = calcManos >= MANOS_MIN && calcManos <= MANOS_MAX ? '' : `Elige entre ${MANOS_MIN} y ${MANOS_MAX} manos.`;
+  const errProducto = calcProductoId ? '' : 'No hay productos con presentación Cuñete en el catálogo para cotizar.';
+  const cotizacionInvalida = !!(errArea || errDescuento || errManos || errProducto);
 
   const handleSelectProject = (p: Proyecto) => {
     setActiveProject(p);
@@ -118,24 +144,19 @@ export const AdvisorProjectManager: React.FC = () => {
 
   const handleCalculateQuote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cotizando) return;
-    if (!activeProject) return;
-    if (!calcProductoId) {
-      showToast('No hay productos con presentación Cuñete en el catálogo para cotizar.', 'error');
-      return;
-    }
-    if (!(Number(calcArea) > 0)) {
-      showToast('Indica el área a pintar en m² (mayor a 0).', 'error');
+    if (cotizando || !activeProject) return;
+    if (cotizacionInvalida) {
+      setCalcTouched({ area: true, descuento: true });
       return;
     }
     setCotizando(true);
     try {
       await calcularYGuardarCotizacion(
         activeProject.proyectoId,
-        Number(calcArea),
-        Number(calcManos),
+        aNumero(calcArea) as number,
+        calcManos,
         calcProductoId,
-        Number(calcDescuento)
+        aNumero(calcDescuento) as number
       );
     } finally {
       setCotizando(false);
@@ -205,10 +226,12 @@ export const AdvisorProjectManager: React.FC = () => {
               const isSelected = activeProject?.proyectoId === p.proyectoId;
               const sinLeer = mensajesSinLeer[p.proyectoId] || 0;
               return (
-                <div
+                <button
+                  type="button"
                   key={p.proyectoId}
                   onClick={() => handleSelectProject(p)}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                  aria-pressed={isSelected}
+                  className={`block w-full text-left p-4 rounded-xl border transition-all cursor-pointer ${
                     isSelected
                       ? isLight
                         ? 'bg-emerald-50/70 border-emerald-500 shadow-sm'
@@ -247,7 +270,7 @@ export const AdvisorProjectManager: React.FC = () => {
 
                   <div className={`flex items-center gap-1.5 text-xs mt-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                     <Building2 className="w-3 h-3 text-slate-400" />
-                    <span className="truncate">{p.empresa?.razonSocial}</span>
+                    <span className="truncate">{p.empresa?.razonSocial || 'Cliente sin empresa registrada'}</span>
                   </div>
 
                   <div className={`flex items-center gap-1.5 text-[11px] mt-1 ${isLight ? 'text-emerald-700 font-medium' : 'text-emerald-300'}`}>
@@ -263,14 +286,14 @@ export const AdvisorProjectManager: React.FC = () => {
                         className="w-3 h-3 rounded-full border border-slate-300 dark:border-white/20"
                         style={{ backgroundColor: p.colorHex || '#CBD5E1' }}
                       />
-                      <span className={`text-[11px] ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{p.color}</span>
+                      <span className={`text-[11px] ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{p.color || 'Sin color'}</span>
                     </div>
 
                     <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {p.updatedAt ? new Date(p.updatedAt).toLocaleDateString('es-CO') : '—'}
+                      {p.updatedAt && !isNaN(new Date(p.updatedAt).getTime()) ? new Date(p.updatedAt).toLocaleDateString('es-CO') : '—'}
                     </span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -434,7 +457,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     {activeProject.ambiente || '—'}
                   </span>
                   <span className={`text-[10px] truncate block ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                    {activeProject.tipoSuperficie}
+                    {activeProject.tipoSuperficie || '—'}
                   </span>
                 </div>
               </div>
@@ -463,18 +486,25 @@ export const AdvisorProjectManager: React.FC = () => {
                     <div className="mt-3 space-y-2">
                       <textarea
                         rows={2}
+                        aria-label="Motivo del cambio de imagen"
+                        maxLength={MOTIVO_IMAGEN_MAX}
                         value={motivoImagen}
                         onChange={(e) => setMotivoImagen(e.target.value)}
+                        onBlur={() => setMotivoTouched(true)}
                         placeholder="Dile al cliente qué debe corregir (borrosa, muy oscura, no corresponde a la obra…)"
-                        className={`w-full rounded-lg p-3 text-xs focus:outline-none focus:border-emerald-500 border ${
-                          isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                        className={`w-full rounded-lg p-3 text-xs focus:outline-none border ${bordeCampo(motivoTouched ? errorMotivoImagen : '', isLight)} ${
+                          isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'
                         }`}
                       />
+                      <div className="flex items-center justify-between gap-2">
+                        <FieldError msg={motivoTouched ? errorMotivoImagen : ''} />
+                        <span className={`ml-auto text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{motivoImagen.trim().length}/{MOTIVO_IMAGEN_MAX}</span>
+                      </div>
                       <div className="flex gap-2">
-                        <button type="button" onClick={handlePedirCambioImagen} disabled={pidiendoImagenBusy} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+                        <button type="button" onClick={handlePedirCambioImagen} disabled={pidiendoImagenBusy || !!errorMotivoImagen} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                           {pidiendoImagenBusy ? 'Enviando…' : 'Enviar solicitud al cliente'}
                         </button>
-                        <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); }} className="px-3 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 cursor-pointer">
+                        <button type="button" onClick={() => { setPidiendoImagen(false); setMotivoImagen(''); setMotivoTouched(false); }} className={`px-3 py-1.5 text-xs rounded-lg border cursor-pointer ${isLight ? 'border-slate-300 text-slate-700 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}>
                           Cancelar
                         </button>
                       </div>
@@ -547,85 +577,93 @@ export const AdvisorProjectManager: React.FC = () => {
                   Este proyecto ya avanzó ({ESTADO_PROYECTO_LABEL[activeProject.estadoPipeline]}) y no admite una nueva cotización.
                 </p>
               ) : (
-              <form onSubmit={handleCalculateQuote} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <form onSubmit={handleCalculateQuote} noValidate className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="quote-form">
                 <div>
-                  <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Área Total a Pintar (m²)
+                  <label htmlFor="quote-area" className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    Área total a pintar (m²)
                   </label>
                   <input
-                    type="number"
+                    id="quote-area"
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
                     value={calcArea}
-                    onChange={(e) => setCalcArea(Number(e.target.value))}
-                    min={1}
-                    step="any"
-                    required
-                    className={`w-full rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    onChange={(e) => setCalcArea(limpiarDecimal(e.target.value, 2, 6))}
+                    onBlur={() => setCalcTouched(t => ({ ...t, area: true }))}
+                    aria-invalid={!!(calcTouched.area && errArea)}
+                    placeholder="Ej. 350"
+                    className={`w-full rounded-lg px-3 py-2 text-sm font-mono focus:outline-none border ${bordeCampo(calcTouched.area ? errArea : '', isLight)} ${isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'}`}
                   />
+                  {calcTouched.area && errArea ? <FieldError msg={errArea} /> : (
+                    <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Mayor a 0 y hasta {AREA_MAX_M2.toLocaleString('es-CO')} m².</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Número de Manos
+                  <label htmlFor="quote-manos" className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    Número de manos
                   </label>
                   <select
+                    id="quote-manos"
                     value={calcManos}
                     onChange={(e) => setCalcManos(Number(e.target.value))}
-                    className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none border ${bordeCampo(errManos, isLight)} ${isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'}`}
                   >
-                    <option value={1}>1 Mano (Mantenimiento)</option>
-                    <option value={2}>2 Manos (Estándar recomendado)</option>
-                    <option value={3}>3 Manos (Sustrato poroso o cambio drástico)</option>
+                    {Array.from({ length: MANOS_MAX - MANOS_MIN + 1 }, (_, i) => MANOS_MIN + i).map(n => (
+                      <option key={n} value={n}>{MANOS_OPCIONES[n] || `${n} manos`}</option>
+                    ))}
                   </select>
+                  <FieldError msg={errManos} />
                 </div>
 
                 <div>
-                  <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                  <label htmlFor="quote-producto" className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                     Producto ColorLink
                   </label>
                   <select
+                    id="quote-producto"
                     value={calcProductoId}
                     onChange={(e) => setCalcProductoId(e.target.value)}
-                    className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    disabled={productosCunete.length === 0}
+                    className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none border disabled:opacity-60 ${bordeCampo(errProducto, isLight)} ${isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'}`}
                   >
                     {productosCunete.length === 0 && <option value="">Sin productos disponibles</option>}
                     {productosCunete.map(p => (
                       <option key={p.productoId} value={p.productoId}>
-                        {p.nombre} ({p.rendimientoM2 ?? '—'} m²/gal)
+                        {p.nombre} ({p.rendimientoM2 ? `${p.rendimientoM2} m²/gal` : 'sin rendimiento'})
                       </option>
                     ))}
                   </select>
+                  <FieldError msg={errProducto} />
                 </div>
 
                 <div>
-                  <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Descuento Asesor (%)
+                  <label htmlFor="quote-descuento" className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    Descuento del asesor (%)
                   </label>
                   <div className="flex items-center gap-2">
                     <input
-                      type="number"
+                      id="quote-descuento"
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
                       value={calcDescuento}
-                      onChange={(e) => setCalcDescuento(Number(e.target.value))}
-                      min={0}
-                      max={15}
-                      step={1}
-                      className={`w-full rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500 border ${
-                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                      }`}
+                      onChange={(e) => setCalcDescuento(limpiarDecimal(e.target.value, 1, 3))}
+                      onBlur={() => setCalcTouched(t => ({ ...t, descuento: true }))}
+                      aria-invalid={!!(calcTouched.descuento && errDescuento)}
+                      className={`w-full min-w-0 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none border ${bordeCampo(calcTouched.descuento ? errDescuento : '', isLight)} ${isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'}`}
                     />
                     <button
                       type="submit"
-                      disabled={cotizando || !calcProductoId}
-                      className="py-2 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-colors flex-shrink-0 cursor-pointer shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={cotizando || cotizacionInvalida}
+                      className="py-2 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-colors flex-shrink-0 cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {cotizando ? 'Calculando…' : 'Calcular'}
                     </button>
                   </div>
+                  {calcTouched.descuento && errDescuento ? <FieldError msg={errDescuento} /> : (
+                    <p className={`text-[10px] mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Entre 0 y {DESCUENTO_MAX_PCT}%.</p>
+                  )}
                 </div>
               </form>
               )}

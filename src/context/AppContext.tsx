@@ -137,7 +137,7 @@ interface AppContextType {
     productoId: string;
     ciudadId: number;
     nombreBodega: string;
-    numeroLote: string;
+    numeroLote?: string;
     cantidadDisponible: number;
     tiempoDespacho?: number;
   }) => Promise<InventarioProducto | null>;
@@ -677,6 +677,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast('Tu perfil fue actualizado.');
       return { success: true, message: 'Perfil actualizado exitosamente.' };
     } catch (err) {
+      // El backend responde 401 también cuando la contraseña ACTUAL es incorrecta: eso no cierra la sesión
+      const claveActualMala = err instanceof ApiError && err.status === 401 && !!datos.password && !passwordCambiada
+        && /contraseña actual/i.test(err.message);
+      if (claveActualMala) return { success: false, message: (err as ApiError).message };
       if (err instanceof ApiError && err.status === 401) return { success: false, message: handleApiError(err, '') };
       const motivo = err instanceof ApiError ? err.message : 'No se pudo actualizar el perfil.';
       return {

@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Proyecto } from '../types/database';
 import { PickupReceiptModal } from './PickupReceiptModal';
+import { ModalBackdrop, FieldError, bordeCampo } from './ui';
+import {
+  PLACA_RE, limpiarPlaca, GUIA_RE, limpiarGuia, limpiarLetras, soloDigitos, errorNombrePersona, errorCelular,
+  errorTexto, errorRango, aNumero, normalizarTexto,
+} from '../validation';
 import { 
   Truck, 
   MapPin, 
@@ -13,11 +18,21 @@ import {
   Building2, 
   Send,
   Navigation,
-  Layers
+  X
 } from 'lucide-react';
 
+const CONDUCTOR_MIN = 3;
+const CONDUCTOR_MAX = 60;
+const TRANSPORTADOR_MAX = 60;
+const DIRECCION_MIN = 5;
+const DIRECCION_MAX = 120;
+const HORAS_MIN = 1;
+const HORAS_MAX = 240;
+
+type CampoDespacho = 'guia' | 'placa' | 'horas' | 'conductor' | 'telefono' | 'transportador' | 'direccion' | 'ciudad';
+
 export const CustomerOrdersView: React.FC = () => {
-  const { proyectos, despacharProyecto, theme } = useApp();
+  const { proyectos, despacharProyecto, inventarios, ciudades, theme } = useApp();
   const isLight = theme === 'light';
 
   // Se guardan solo los ids: el proyecto se lee siempre de la lista viva del contexto
@@ -27,48 +42,100 @@ export const CustomerOrdersView: React.FC = () => {
   const assignDispatchModal = assignId ? proyectos.find(p => p.proyectoId === assignId) || null : null;
   const [dispatching, setDispatching] = useState(false);
 
-  // Dispatch assignment form
+  // Formulario de despacho
+  const [guia, setGuia] = useState('');
   const [driverName, setDriverName] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [transportCompany, setTransportCompany] = useState('');
   const [transitHours, setTransitHours] = useState<string>('');
+  const [bodegaOrigen, setBodegaOrigen] = useState('');
+  const [direccion, setDireccion] = useState('');
+  const [ciudad, setCiudad] = useState('');
+  const [touched, setTouched] = useState<Partial<Record<CampoDespacho, boolean>>>({});
 
-  const dispatchableProjects = proyectos.filter(p => 
+  const bodegas = useMemo(
+    () => Array.from(new Set(inventarios.map(i => i.nombreBodega).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es')),
+    [inventarios],
+  );
+  const ciudadOptions = useMemo(() => {
+    const set = new Set(ciudades.map(c => c.ciudad));
+    if (ciudad) set.add(ciudad);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [ciudades, ciudad]);
+
+  const dispatchableProjects = proyectos.filter(p =>
     p.estadoPipeline === 'aprobado_calidad' ||
     p.estadoPipeline === 'despachado'
   );
 
   const handleOpenAssignModal = (p: Proyecto) => {
-    // Formulario limpio para cada proyecto
+    // Formulario limpio para cada proyecto, con el destino que registró el cliente
+    setGuia('');
     setDriverName('');
     setDriverPhone('');
     setVehiclePlate('');
     setTransportCompany('');
     setTransitHours('');
+    setBodegaOrigen('');
+    setDireccion((p.empresa?.direccionDespacho || '').slice(0, DIRECCION_MAX));
+    setCiudad(p.empresa?.ciudad?.ciudad || '');
+    setTouched({});
     setAssignId(p.proyectoId);
   };
+
+  const errors: Partial<Record<CampoDespacho, string>> = {};
+  if (guia && !GUIA_RE.test(guia)) errors.guia = 'La guía debe tener entre 4 y 30 letras, números o guiones.';
+  if (!vehiclePlate) errors.placa = 'La placa es obligatoria.';
+  else if (!PLACA_RE.test(vehiclePlate)) errors.placa = 'Placa no válida: carro ABC123 o moto ABC12D.';
+  const eh = errorRango(transitHours, 'El tiempo estimado', { min: HORAS_MIN, max: HORAS_MAX, entero: true, unidad: 'horas' });
+  if (eh) errors.horas = eh;
+  const ec = errorNombrePersona(driverName, 'El nombre del conductor', CONDUCTOR_MIN, CONDUCTOR_MAX);
+  if (ec) errors.conductor = ec;
+  const et = errorCelular(driverPhone, 'El celular del conductor', true);
+  if (et) errors.telefono = et;
+  const etr = errorTexto(transportCompany, 'La transportadora', { min: 2, max: TRANSPORTADOR_MAX, requerido: true, femenino: true });
+  if (etr) errors.transportador = etr;
+  const ed = errorTexto(direccion, 'La dirección de entrega', { min: DIRECCION_MIN, max: DIRECCION_MAX, requerido: true, femenino: true });
+  if (ed) errors.direccion = ed;
+  if (!ciudad.trim()) errors.ciudad = 'Selecciona la ciudad de entrega.';
+  const hayErrores = Object.keys(errors).length > 0;
+  const err = (c: CampoDespacho) => (touched[c] ? errors[c] : undefined);
+  const touch = (c: CampoDespacho) => setTouched(t => (t[c] ? t : { ...t, [c]: true }));
+
+  const cerrarDespacho = () => { if (!dispatching) setAssignId(null); };
 
   const handleConfirmDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignDispatchModal || dispatching) return;
+    if (hayErrores) {
+      setTouched({ guia: true, placa: true, horas: true, conductor: true, telefono: true, transportador: true, direccion: true, ciudad: true });
+      return;
+    }
 
     setDispatching(true);
     try {
       const ok = await despacharProyecto(assignDispatchModal.proyectoId, {
-        conductorNombre: driverName.trim(),
-        conductorTelefono: driverPhone.trim(),
-        placaVehiculo: vehiclePlate.trim(),
-        transportador: transportCompany.trim(),
-        tiempoEstimadoHoras: Number(transitHours),
-        direccionEntrega: assignDispatchModal.empresa?.direccionDespacho,
-        ciudadEntrega: assignDispatchModal.empresa?.ciudad?.ciudad,
+        numeroGuia: guia || undefined, // vacío: el servidor genera la guía
+        conductorNombre: normalizarTexto(driverName),
+        conductorTelefono: driverPhone,
+        placaVehiculo: vehiclePlate,
+        transportador: normalizarTexto(transportCompany),
+        tiempoEstimadoHoras: aNumero(transitHours) as number,
+        bodegaOrigen: bodegaOrigen || undefined,
+        direccionEntrega: normalizarTexto(direccion),
+        ciudadEntrega: ciudad.trim(),
       });
       if (ok) setAssignId(null);
     } finally {
       setDispatching(false);
     }
   };
+
+  const labelCls = `block font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`;
+  const inputCls = (c: CampoDespacho, extra = '') => `w-full rounded-lg px-3 py-2 focus:outline-none border ${bordeCampo(err(c), isLight)} ${
+    isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'
+  } ${extra}`;
 
   return (
     <div className="space-y-6">
@@ -79,13 +146,13 @@ export const CustomerOrdersView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 text-sky-500 text-xs font-bold uppercase tracking-wider mb-1">
             <Truck className="w-4 h-4" />
-            Centro de Despacho & Flota de Transporte Metropolitano
+            Centro de Despacho a Obra
           </div>
           <h2 className={`text-2xl md:text-3xl font-extrabold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-            Logística de Despachos en el Valle de Aburrá
+            Logística de Despachos a Obra
           </h2>
           <p className={`text-sm mt-1 max-w-2xl ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-            Control de guías de despacho, asignación de vehículos, tiempos de tránsito por municipio y emisión de remisiones con firma en terreno.
+            Proyectos aprobados por Calidad listos para salir, asignación de vehículo y conductor, remisión y confirmación de entrega en obra.
           </p>
         </div>
 
@@ -223,6 +290,7 @@ export const CustomerOrdersView: React.FC = () => {
                 <div className={`pt-3 border-t flex flex-col gap-2 ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                   {isAlistamiento ? (
                     <button
+                      type="button"
                       onClick={() => handleOpenAssignModal(p)}
                       className="w-full py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                     >
@@ -231,6 +299,7 @@ export const CustomerOrdersView: React.FC = () => {
                     </button>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => setReceiptId(p.proyectoId)}
                       className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
                     >
@@ -247,105 +316,198 @@ export const CustomerOrdersView: React.FC = () => {
 
       {/* ASSIGN DISPATCH MODAL */}
       {assignDispatchModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`border rounded-2xl w-full max-w-lg p-6 shadow-2xl relative ${
+        <ModalBackdrop onClose={cerrarDespacho} bloqueado={dispatching} label="Asignación de transporte y despacho">
+          <div className={`border rounded-2xl w-full max-w-lg p-5 sm:p-6 shadow-2xl relative my-auto ${
             isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
           }`}>
-            <div className="flex items-center gap-2 text-sky-500 mb-2">
-              <Truck className="w-5 h-5" />
+            <button
+              type="button"
+              onClick={cerrarDespacho}
+              aria-label="Cerrar"
+              className={`absolute top-4 right-4 p-1 rounded-lg cursor-pointer ${isLight ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2 text-sky-500 mb-2 pr-8">
+              <Truck className="w-5 h-5 flex-shrink-0" />
               <h3 className={`font-bold text-lg ${isLight ? 'text-slate-900' : 'text-white'}`}>Asignación de Transporte & Despacho</h3>
             </div>
             <p className={`text-xs mb-5 leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
               Asigna vehículo y guía para la entrega de <span className={`font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>{assignDispatchModal.nombreProyecto}</span>.
             </p>
 
-            <form onSubmit={handleConfirmDispatch} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleConfirmDispatch} noValidate className="space-y-4 text-xs" data-testid="dispatch-form">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className={`block font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Placa del Vehículo
-                  </label>
+                  <label htmlFor="dsp-placa" className={labelCls}>Placa del vehículo *</label>
                   <input
+                    id="dsp-placa"
                     type="text"
-                    required
+                    autoComplete="off"
+                    maxLength={6}
                     value={vehiclePlate}
-                    onChange={(e) => setVehiclePlate(e.target.value)}
-                    className={`w-full rounded-lg px-3 py-2 font-mono uppercase focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    onChange={(e) => setVehiclePlate(limpiarPlaca(e.target.value))}
+                    onBlur={() => touch('placa')}
+                    aria-invalid={!!err('placa')}
+                    placeholder="ABC123"
+                    className={inputCls('placa', 'font-mono uppercase')}
                   />
+                  <FieldError msg={err('placa')} />
                 </div>
 
                 <div>
-                  <label className={`block font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Tiempo Estimado (Horas)
-                  </label>
+                  <label htmlFor="dsp-horas" className={labelCls}>Tiempo estimado (horas) *</label>
                   <input
-                    type="number"
-                    required
-                    min={1}
-                    max={12}
+                    id="dsp-horas"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={3}
                     value={transitHours}
-                    onChange={(e) => setTransitHours(e.target.value)}
-                    className={`w-full rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-emerald-500 border ${
-                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                    }`}
+                    onChange={(e) => setTransitHours(soloDigitos(e.target.value, 3))}
+                    onBlur={() => touch('horas')}
+                    aria-invalid={!!err('horas')}
+                    placeholder="Ej. 4"
+                    className={inputCls('horas', 'font-mono')}
                   />
+                  <FieldError msg={err('horas')} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="dsp-conductor" className={labelCls}>Nombre del conductor *</label>
+                  <input
+                    id="dsp-conductor"
+                    type="text"
+                    autoComplete="off"
+                    maxLength={CONDUCTOR_MAX}
+                    value={driverName}
+                    onChange={(e) => setDriverName(limpiarLetras(e.target.value, CONDUCTOR_MAX))}
+                    onBlur={() => touch('conductor')}
+                    aria-invalid={!!err('conductor')}
+                    className={inputCls('conductor')}
+                  />
+                  <FieldError msg={err('conductor')} />
+                </div>
+
+                <div>
+                  <label htmlFor="dsp-telefono" className={labelCls}>Celular del conductor *</label>
+                  <input
+                    id="dsp-telefono"
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={10}
+                    value={driverPhone}
+                    onChange={(e) => setDriverPhone(soloDigitos(e.target.value, 10))}
+                    onBlur={() => touch('telefono')}
+                    aria-invalid={!!err('telefono')}
+                    placeholder="3001234567"
+                    className={inputCls('telefono', 'font-mono')}
+                  />
+                  <FieldError msg={err('telefono')} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="dsp-transportador" className={labelCls}>Empresa transportadora *</label>
+                  <input
+                    id="dsp-transportador"
+                    type="text"
+                    autoComplete="off"
+                    maxLength={TRANSPORTADOR_MAX}
+                    value={transportCompany}
+                    onChange={(e) => setTransportCompany(e.target.value.slice(0, TRANSPORTADOR_MAX))}
+                    onBlur={() => touch('transportador')}
+                    aria-invalid={!!err('transportador')}
+                    placeholder="Ej. Flota propia"
+                    className={inputCls('transportador')}
+                  />
+                  <FieldError msg={err('transportador')} />
+                </div>
+
+                <div>
+                  <label htmlFor="dsp-guia" className={labelCls}>Número de guía (opcional)</label>
+                  <input
+                    id="dsp-guia"
+                    type="text"
+                    autoComplete="off"
+                    maxLength={30}
+                    value={guia}
+                    onChange={(e) => setGuia(limpiarGuia(e.target.value))}
+                    onBlur={() => touch('guia')}
+                    aria-invalid={!!err('guia')}
+                    placeholder="Se genera automáticamente"
+                    className={inputCls('guia', 'font-mono uppercase')}
+                  />
+                  <FieldError msg={err('guia')} />
                 </div>
               </div>
 
               <div>
-                <label className={`block font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Nombre del Conductor
-                </label>
+                <label htmlFor="dsp-direccion" className={labelCls}>Dirección de entrega *</label>
                 <input
+                  id="dsp-direccion"
                   type="text"
-                  required
-                  value={driverName}
-                  onChange={(e) => setDriverName(e.target.value)}
-                  className={`w-full rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500 border ${
-                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                  }`}
+                  autoComplete="off"
+                  maxLength={DIRECCION_MAX}
+                  value={direccion}
+                  onChange={(e) => setDireccion(e.target.value.slice(0, DIRECCION_MAX))}
+                  onBlur={() => touch('direccion')}
+                  aria-invalid={!!err('direccion')}
+                  placeholder="Ej. Cra 43A # 1-50, obra torre 2"
+                  className={inputCls('direccion')}
                 />
+                <FieldError msg={err('direccion')} />
               </div>
 
-              <div>
-                <label className={`block font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Teléfono / Móvil del Conductor
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={driverPhone}
-                  onChange={(e) => setDriverPhone(e.target.value)}
-                  className={`w-full rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-emerald-500 border ${
-                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                  }`}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="dsp-ciudad" className={labelCls}>Ciudad de entrega *</label>
+                  <select
+                    id="dsp-ciudad"
+                    value={ciudad}
+                    onChange={(e) => { setCiudad(e.target.value); touch('ciudad'); }}
+                    onBlur={() => touch('ciudad')}
+                    aria-invalid={!!err('ciudad')}
+                    className={inputCls('ciudad', 'cursor-pointer')}
+                  >
+                    <option value="">Selecciona la ciudad</option>
+                    {ciudadOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <FieldError msg={err('ciudad')} />
+                </div>
+
+                <div>
+                  <label htmlFor="dsp-bodega" className={labelCls}>Bodega de origen (opcional)</label>
+                  <select
+                    id="dsp-bodega"
+                    value={bodegaOrigen}
+                    onChange={(e) => setBodegaOrigen(e.target.value)}
+                    className={`w-full rounded-lg px-3 py-2 focus:outline-none border cursor-pointer ${bordeCampo('', isLight)} ${
+                      isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'
+                    }`}
+                  >
+                    <option value="">Sin especificar</option>
+                    {bodegas.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className={`block font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                  Empresa Transportadora
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={transportCompany}
-                  onChange={(e) => setTransportCompany(e.target.value)}
-                  className={`w-full rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500 border ${
-                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
-                  }`}
-                />
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
+              {hayErrores && (
+                <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`} data-testid="pending-fields">
+                  Completa correctamente los campos marcados con * para poner el pedido en ruta.
+                </p>
+              )}
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setAssignId(null)}
+                  onClick={cerrarDespacho}
                   className={`flex-1 py-2.5 font-semibold rounded-lg transition-colors cursor-pointer border ${
-                    isLight 
-                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200' 
+                    isLight
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                       : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                   }`}
                 >
@@ -353,8 +515,8 @@ export const CustomerOrdersView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={dispatching}
-                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  disabled={dispatching || hayErrores}
+                  className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                 >
                   <Send className="w-3.5 h-3.5" />
                   {dispatching ? 'Despachando…' : 'Poner en Ruta'}
@@ -362,7 +524,7 @@ export const CustomerOrdersView: React.FC = () => {
               </div>
             </form>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* RECEIPT MODAL */}

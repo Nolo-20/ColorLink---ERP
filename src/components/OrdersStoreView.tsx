@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useApp, canRole } from '../context/AppContext';
-import { EstadoPedido, ModalidadEntrega, PedidoTienda, Producto } from '../types/database';
+import { EstadoPedido, ModalidadEntrega, PedidoTienda } from '../types/database';
+import { ESTADO_PEDIDO_LABEL } from '../estados';
+import { ModalBackdrop, FieldError, bordeCampo, descargarCsv, hoyArchivo } from './ui';
+import { errorTexto } from '../validation';
+
+const NOTA_MAX = 300;
 import { 
   Package, 
   QrCode, 
@@ -27,7 +32,8 @@ import {
   Ban,
   RefreshCw,
   Layers,
-  Sparkles
+  Download,
+  X
 } from 'lucide-react';
 
 export const OrdersStoreView: React.FC = () => {
@@ -39,8 +45,10 @@ export const OrdersStoreView: React.FC = () => {
     cambiarEstadoPedido, 
     setRedeemModalOpen, 
     setActiveTab, 
-    showToast,
     searchQuery,
+    selectedPedido,
+    setSelectedPedido,
+    hasModuleAccess,
     theme 
   } = useApp();
 
@@ -56,6 +64,20 @@ export const OrdersStoreView: React.FC = () => {
     ? pedidos.find(p => p.ordenId === selectedOrderId) || null
     : null;
   const [advancingId, setAdvancingId] = useState<string | null>(null);
+  // Confirmación del cambio de estado, con nota opcional para el historial
+  const [pendingAdvance, setPendingAdvance] = useState<{ ordenId: string; nextState: EstadoPedido; nextLabel: string } | null>(null);
+  const [nota, setNota] = useState('');
+  const pedidoAvance = pendingAdvance ? pedidos.find(p => p.ordenId === pendingAdvance.ordenId) || null : null;
+  const errNota = errorTexto(nota, 'La nota', { max: NOTA_MAX });
+
+  // Si se llegó desde la búsqueda global con un pedido elegido, se abre su detalle
+  useEffect(() => {
+    if (selectedPedido) {
+      setActiveStoreTab('pedidos');
+      setSelectedOrderId(selectedPedido.ordenId);
+      setSelectedPedido(null);
+    }
+  }, [selectedPedido, setSelectedPedido]);
 
   // Sincroniza con la búsqueda global de la barra superior (también cuando se borra)
   useEffect(() => {
@@ -68,37 +90,65 @@ export const OrdersStoreView: React.FC = () => {
     return isNaN(t.getTime()) ? '—' : t.toLocaleString('es-CO');
   };
 
-  const handleAdvance = async (p: PedidoTienda, nextState: EstadoPedido, nextLabel: string) => {
-    if (advancingId) return;
-    setAdvancingId(p.ordenId);
+  const abrirAvance = (p: PedidoTienda, nextState: EstadoPedido, nextLabel: string) => {
+    setNota('');
+    setPendingAdvance({ ordenId: p.ordenId, nextState, nextLabel });
+  };
+
+  const confirmarAvance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingAdvance || !pedidoAvance || advancingId || errNota) return;
+    setAdvancingId(pedidoAvance.ordenId);
     try {
-      await cambiarEstadoPedido(
-        p.pedidoId,
-        nextState,
-        `Avanzado a "${nextLabel}" por ${currentUser?.nombre || 'Colaborador'} (${currentUser?.rol?.rol || 'Staff'})`
+      const notaLimpia = nota.trim().replace(/\s+/g, ' ');
+      const ok = await cambiarEstadoPedido(
+        pedidoAvance.pedidoId,
+        pendingAdvance.nextState,
+        notaLimpia || `Avanzado a "${ESTADO_PEDIDO_LABEL[pendingAdvance.nextState]}" por ${currentUser?.nombre || 'Colaborador'} (${currentUser?.rol?.rol || 'Equipo'})`
       );
+      if (ok) setPendingAdvance(null);
     } finally {
       setAdvancingId(null);
     }
   };
 
+  const exportarPedidos = () => {
+    descargarCsv(
+      `pedidos-tienda-${hoyArchivo()}.csv`,
+      ['Pedido', 'Fecha', 'Cliente', 'Correo', 'Teléfono', 'Modalidad', 'Sucursal / Dirección', 'Código retiro', 'Estado', 'Productos', 'Total COP'],
+      filteredOrders.map(p => [
+        p.pedidoId,
+        p.fechaCreacion && !isNaN(new Date(p.fechaCreacion).getTime()) ? new Date(p.fechaCreacion).toLocaleString('es-CO') : '',
+        p.clienteNombre, p.clienteEmail, p.clienteTelefono,
+        p.modalidadEntrega === 'recogida_sucursal' ? 'Retiro en sucursal' : 'Domicilio',
+        p.sucursalRetiro || p.direccionEntrega || '',
+        p.codigoRetiro || '',
+        ESTADO_PEDIDO_LABEL[p.estadoPedido],
+        (p.items || []).map(it => `${it.cantidad}x ${it.nombre}`).join(' | '),
+        p.total ?? 0,
+      ]),
+    );
+  };
+
   // Filtered orders list
+  const term = searchTerm.trim().toLowerCase();
   const filteredOrders = pedidos.filter(p => {
     const matchesModalidad = filterModalidad === 'all' || p.modalidadEntrega === filterModalidad;
     const matchesEstado = filterEstado === 'all' || p.estadoPedido === filterEstado;
-    const matchesSearch = 
-      p.pedidoId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.codigoRetiro && p.codigoRetiro.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.empresaNombre && p.empresaNombre.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesSearch = !term ||
+      p.pedidoId.toLowerCase().includes(term) ||
+      p.clienteNombre.toLowerCase().includes(term) ||
+      p.clienteEmail.toLowerCase().includes(term) ||
+      (p.codigoRetiro && p.codigoRetiro.toLowerCase().includes(term)) ||
+      (p.empresaNombre && p.empresaNombre.toLowerCase().includes(term));
 
     return matchesModalidad && matchesEstado && matchesSearch;
   });
 
   // Filtered store catalog
   const filteredProducts = productos.filter(p => {
-    return p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.categoria && p.categoria.toLowerCase().includes(searchTerm.toLowerCase()));
+    return !term || p.nombre.toLowerCase().includes(term) ||
+      (p.categoria && p.categoria.toLowerCase().includes(term));
   });
 
   // Helper description of who can advance each order state
@@ -269,9 +319,11 @@ export const OrdersStoreView: React.FC = () => {
             <div className="relative w-full md:w-80">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
-                type="text"
+                type="search"
+                maxLength={80}
+                aria-label="Buscar pedidos"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => setSearchTerm(e.target.value.slice(0, 80))}
                 placeholder="Buscar por pedido, cliente o código de retiro..."
                 className={`w-full rounded-xl pl-10 pr-4 py-2 text-xs focus:outline-none focus:border-emerald-500 font-medium ${
                   isLight ? 'bg-slate-100 border border-slate-300 text-slate-900' : 'bg-slate-900 border border-slate-700 text-white'
@@ -334,6 +386,19 @@ export const OrdersStoreView: React.FC = () => {
                 <option value="entregado_recogido">Entregado / Recogido</option>
                 <option value="cancelado">Cancelado</option>
               </select>
+
+              <button
+                type="button"
+                onClick={exportarPedidos}
+                disabled={filteredOrders.length === 0}
+                title="Descargar los pedidos visibles en CSV (Excel)"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isLight ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV</span>
+              </button>
             </div>
           </div>
 
@@ -520,6 +585,7 @@ export const OrdersStoreView: React.FC = () => {
 
                       <div className="flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => setSelectedOrderId(p.ordenId)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                             isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
@@ -533,6 +599,7 @@ export const OrdersStoreView: React.FC = () => {
                           // Entrega en mostrador: siempre validando el código del cliente
                           canRole.canjearRetiro(currentUser?.rol.rol) && (
                             <button
+                              type="button"
                               onClick={() => setRedeemModalOpen(true)}
                               className="px-3.5 py-1.5 bg-[#F2C417] hover:bg-[#C99A0A] text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                             >
@@ -542,7 +609,8 @@ export const OrdersStoreView: React.FC = () => {
                           )
                         ) : perm.nextState && canRole.gestionarPedidos(currentUser?.rol.rol) && (
                           <button
-                            onClick={() => handleAdvance(p, perm.nextState!, perm.nextLabel)}
+                            type="button"
+                            onClick={() => abrirAvance(p, perm.nextState!, perm.nextLabel)}
                             disabled={advancingId !== null}
                             className="px-3.5 py-1.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                           >
@@ -566,7 +634,7 @@ export const OrdersStoreView: React.FC = () => {
           <div className={`p-4 rounded-2xl border ${
             isLight ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-slate-900/80 border-slate-800 text-slate-300'
           }`}>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="font-bold block text-xs mb-0.5">
                   🛒 Catálogo en Línea & Disponibilidad Reflejada en Tiempo Real:
@@ -575,13 +643,14 @@ export const OrdersStoreView: React.FC = () => {
                   Productos del catálogo con su disponibilidad según el stock registrado en bodegas.
                 </p>
               </div>
-              <button
+              {hasModuleAccess('inventarios') && <button
+                type="button"
                 onClick={() => setActiveTab('inventarios')}
-                className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl transition-all cursor-pointer whitespace-nowrap ml-4 flex items-center gap-1.5"
+                className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl transition-all cursor-pointer whitespace-nowrap self-start sm:self-auto flex items-center gap-1.5"
               >
                 <Layers className="w-3.5 h-3.5" />
                 <span>Ir a Gestionar Inventario</span>
-              </button>
+              </button>}
             </div>
           </div>
 
@@ -664,84 +733,147 @@ export const OrdersStoreView: React.FC = () => {
 
       {/* MODAL: ORDER DETAILS */}
       {selectedOrderDetails && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className={`border rounded-3xl w-full max-w-lg p-6 shadow-2xl relative text-xs space-y-4 ${
+        <ModalBackdrop onClose={() => setSelectedOrderId(null)} label="Detalle del pedido">
+          <div className={`border rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl relative text-xs space-y-4 my-auto ${
             isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
-          }`}>
+          }`} data-testid="order-detail">
             <div className={`flex items-center justify-between pb-3 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
               <div>
-                <span className="font-mono text-emerald-500 font-bold">#{selectedOrderDetails.pedidoId}</span>
+                <span className={`font-mono font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-500'}`}>#{selectedOrderDetails.pedidoId}</span>
                 <h3 className="font-extrabold text-base">Detalle Completo del Pedido</h3>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedOrderId(null)}
-                className="p-1 text-slate-400 hover:text-slate-200 cursor-pointer"
+                aria-label="Cerrar"
+                className={`p-1 rounded-lg cursor-pointer ${isLight ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Cliente:</span>
-                <span className="font-bold">{selectedOrderDetails.clienteNombre}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Modalidad:</span>
-                <span className="font-bold">{selectedOrderDetails.modalidadEntrega === 'recogida_sucursal' ? 'Retiro en sucursal' : 'Envío a domicilio'}</span>
-              </div>
-              {selectedOrderDetails.direccionEntrega && (
-                <div className="flex justify-between gap-3">
-                  <span className="text-slate-400">Dirección de Entrega:</span>
-                  <span className="font-bold text-right">{selectedOrderDetails.direccionEntrega}</span>
+              {[
+                ['Cliente', selectedOrderDetails.clienteNombre],
+                ['Contacto', [selectedOrderDetails.clienteTelefono, selectedOrderDetails.clienteEmail].filter(Boolean).join(' • ') || '—'],
+                ['Estado', ESTADO_PEDIDO_LABEL[selectedOrderDetails.estadoPedido]],
+                ['Modalidad', selectedOrderDetails.modalidadEntrega === 'recogida_sucursal' ? 'Retiro en sucursal' : 'Envío a domicilio'],
+                ...(selectedOrderDetails.direccionEntrega ? [['Dirección de entrega', selectedOrderDetails.direccionEntrega]] : []),
+                ...(selectedOrderDetails.sucursalRetiro ? [['Sucursal de retiro', selectedOrderDetails.sucursalRetiro]] : []),
+                ...(selectedOrderDetails.codigoRetiro ? [['Código de retiro', selectedOrderDetails.codigoRetiro]] : []),
+                ['Fecha de compra', fmtFechaHora(selectedOrderDetails.fechaCreacion)],
+                ['Total pagado', `$${(selectedOrderDetails.total ?? 0).toLocaleString('es-CO')} COP`],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-3">
+                  <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>{k}:</span>
+                  <span className="font-bold text-right break-words min-w-0">{v}</span>
                 </div>
-              )}
-              {selectedOrderDetails.sucursalRetiro && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Sucursal de Retiro:</span>
-                  <span className="font-bold text-emerald-500">{selectedOrderDetails.sucursalRetiro}</span>
+              ))}
+            </div>
+
+            <div className={`space-y-1.5 pt-2 border-t ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+              <span className={`font-bold block uppercase text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Productos ({selectedOrderDetails.items?.length || 0}):</span>
+              {(selectedOrderDetails.items || []).map(it => (
+                <div key={it.itemId} className="flex justify-between gap-3">
+                  <span className="min-w-0">{it.cantidad}x {it.nombre}{it.presentacion ? ` (${it.presentacion})` : ''}</span>
+                  <span className="font-mono">${(it.total ?? 0).toLocaleString('es-CO')}</span>
                 </div>
-              )}
-              {selectedOrderDetails.codigoRetiro && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Código de Retiro:</span>
-                  <span className="font-mono font-black text-sm text-emerald-500">{selectedOrderDetails.codigoRetiro}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-slate-400">Total a Pagar / Pagado:</span>
-                <span className="font-mono font-black text-emerald-500">${(selectedOrderDetails.total ?? 0).toLocaleString('es-CO')} COP</span>
-              </div>
+              ))}
             </div>
 
             {/* Traceability history */}
-            <div className="space-y-2 pt-2 border-t border-slate-800">
-              <span className="font-bold block uppercase text-[10px] text-slate-400">Historial de Estados y Roles:</span>
+            <div className={`space-y-2 pt-2 border-t ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+              <span className={`font-bold block uppercase text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Historial de Estados y Roles:</span>
               {selectedOrderDetails.historialEstados.length === 0 && (
-                <p className="text-slate-400">Sin movimientos registrados.</p>
+                <p className={isLight ? 'text-slate-500' : 'text-slate-400'}>Sin movimientos registrados.</p>
               )}
               {selectedOrderDetails.historialEstados.map((h, i) => (
                 <div key={i} className={`p-3 rounded-xl border text-xs space-y-1 ${
                   isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-slate-800'
                 }`}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-emerald-500 uppercase text-[10px]">{h.estado.replace(/_/g, ' ')}</span>
-                    <span className="text-[10px] font-mono text-slate-400">{fmtFechaHora(h.fecha)}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`font-bold uppercase text-[10px] ${isLight ? 'text-emerald-700' : 'text-emerald-500'}`}>{ESTADO_PEDIDO_LABEL[h.estado] || h.estado}</span>
+                    <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{fmtFechaHora(h.fecha)}</span>
                   </div>
-                  {h.notas && <p className="font-medium">{h.notas}</p>}
-                  <p className="text-slate-400 text-[10px]">Por: <strong className={isLight ? 'text-slate-700' : 'text-slate-300'}>{h.usuario}</strong> ({h.rol})</p>
+                  {h.notas && <p className="font-medium break-words">{h.notas}</p>}
+                  <p className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Por: <strong className={isLight ? 'text-slate-700' : 'text-slate-300'}>{h.usuario}</strong> ({h.rol})</p>
                 </div>
               ))}
             </div>
 
             <button
+              type="button"
               onClick={() => setSelectedOrderId(null)}
-              className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs cursor-pointer"
+              className={`w-full py-2.5 rounded-xl font-bold text-xs cursor-pointer ${
+                isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+              }`}
             >
               Cerrar
             </button>
           </div>
-        </div>
+        </ModalBackdrop>
+      )}
+
+      {/* MODAL: CONFIRMAR CAMBIO DE ESTADO */}
+      {pendingAdvance && pedidoAvance && (
+        <ModalBackdrop onClose={() => { if (!advancingId) setPendingAdvance(null); }} bloqueado={!!advancingId} label="Confirmar cambio de estado">
+          <form
+            onSubmit={confirmarAvance}
+            noValidate
+            data-testid="advance-form"
+            className={`border rounded-3xl w-full max-w-md p-5 sm:p-6 shadow-2xl text-xs space-y-4 my-auto ${
+              isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0b172a] border-slate-700 text-white'
+            }`}
+          >
+            <div>
+              <h3 className="font-extrabold text-base">Confirmar cambio de estado</h3>
+              <p className={`mt-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                Pedido <strong className="font-mono">#{pedidoAvance.pedidoId}</strong> de {pedidoAvance.clienteNombre}:{' '}
+                <strong>{ESTADO_PEDIDO_LABEL[pedidoAvance.estadoPedido]}</strong> → <strong className={isLight ? 'text-emerald-700' : 'text-emerald-400'}>{ESTADO_PEDIDO_LABEL[pendingAdvance.nextState]}</strong>.
+                El cliente recibe aviso por correo.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="advance-nota" className={`block font-bold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                Nota para el historial (opcional)
+              </label>
+              <textarea
+                id="advance-nota"
+                rows={3}
+                maxLength={NOTA_MAX}
+                value={nota}
+                onChange={(e) => setNota(e.target.value.slice(0, NOTA_MAX))}
+                placeholder="Ej. Se entregó a la transportadora a las 10 a. m."
+                className={`w-full rounded-xl p-3 text-xs focus:outline-none border ${bordeCampo(errNota, isLight)} ${
+                  isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-white'
+                }`}
+              />
+              <div className="flex items-start justify-between gap-2">
+                <FieldError msg={errNota} />
+                <span className={`ml-auto text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{nota.length}/{NOTA_MAX}</span>
+              </div>
+            </div>
+            <div className="flex flex-col-reverse sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingAdvance(null)}
+                disabled={!!advancingId}
+                className={`flex-1 py-2.5 rounded-xl font-bold cursor-pointer disabled:opacity-50 ${
+                  isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={!!advancingId || !!errNota}
+                className="flex-1 py-2.5 bg-[#F2C417] hover:bg-[#C99A0A] disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black uppercase tracking-wider rounded-xl cursor-pointer"
+              >
+                {advancingId ? 'Actualizando…' : 'Confirmar'}
+              </button>
+            </div>
+          </form>
+        </ModalBackdrop>
       )}
 
     </div>

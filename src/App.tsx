@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { ModernLoginScreen } from './components/ModernLoginScreen';
 import { Navbar } from './components/Navbar';
@@ -25,7 +25,7 @@ const GlobalToast: React.FC<{ message: string; kind: 'ok' | 'error' }> = ({ mess
   return (
     <div
       role={isError ? 'alert' : 'status'}
-      className={`fixed bottom-6 right-6 z-[60] max-w-sm bg-[#091526] border shadow-2xl text-white px-4 py-3 rounded-xl flex items-center gap-3 ${
+      className={`fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:max-w-sm bg-[#091526] border shadow-2xl text-white px-4 py-3 rounded-xl flex items-center gap-3 ${
         isError ? 'border-rose-500/70 shadow-rose-500/20' : 'border-emerald-500/60 shadow-emerald-500/20'
       }`}
     >
@@ -40,6 +40,13 @@ const GlobalToast: React.FC<{ message: string; kind: 'ok' | 'error' }> = ({ mess
 const MainLayout: React.FC = () => {
   const { currentUser, authLoading, activeTab, toastMessage, toastKind, theme } = useApp();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // En pantallas pequeñas el menú lateral es un panel que se abre encima del contenido
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useEffect(() => { setMobileNavOpen(false); }, [activeTab]);
+  const toggleNav = () => {
+    if (window.matchMedia('(max-width: 767px)').matches) setMobileNavOpen(v => !v);
+    else setSidebarCollapsed(v => !v);
+  };
 
   // Mientras se verifica la sesión guardada en el servidor
   if (authLoading) {
@@ -72,22 +79,25 @@ const MainLayout: React.FC = () => {
       <Sidebar 
         collapsed={sidebarCollapsed} 
         setCollapsed={setSidebarCollapsed} 
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
       />
 
       {/* Main Content Area */}
       <div 
-        className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${
-          sidebarCollapsed ? 'ml-20' : 'ml-64'
+        className={`flex-1 min-w-0 flex flex-col min-h-screen transition-all duration-300 ${
+          sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'
         }`}
       >
         {/* Top Navbar */}
         <Navbar 
           collapsed={sidebarCollapsed} 
-          onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} 
+ 
+          onToggleSidebar={toggleNav} 
         />
 
         {/* Dynamic Route Content */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-8">
+        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-8 py-5 sm:py-8">
           {activeTab === 'inicio' && <HomeLaunchpad />}
           {activeTab === 'pipeline' && <PipelineTraceability />}
           {activeTab === 'proyectos' && <AdvisorProjectManager />}
@@ -105,10 +115,10 @@ const MainLayout: React.FC = () => {
         <footer className={`w-full border-t py-6 px-6 text-center text-xs flex flex-col sm:flex-row items-center justify-between gap-3 max-w-7xl mx-auto ${
           theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-slate-900/80 text-slate-500'
         }`}>
-          <p>Copyright 2026 © Derechos Reservados • COLORLINK S.A.S. • Valle de Aburrá, Colombia</p>
+          <p>© {new Date().getFullYear()} COLORLINK S.A.S. • Medellín, Colombia</p>
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Sistema ERP Operacional v2.4</span>
+            <span>ERP ColorLink</span>
           </div>
         </footer>
       </div>

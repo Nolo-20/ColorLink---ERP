@@ -26,9 +26,11 @@ import {
 interface SidebarProps {
   collapsed: boolean;
   setCollapsed: (v: boolean) => void;
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ collapsed: collapsedDesktop, setCollapsed, mobileOpen = false, onCloseMobile }) => {
   const { 
     currentUser, 
     activeTab, 
@@ -46,6 +48,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
 
 
   if (!currentUser) return null;
+  // En el panel móvil el menú siempre se muestra completo
+  const collapsed = collapsedDesktop && !mobileOpen;
 
   const pendingQuality = proyectos.filter(p => p.estadoPipeline === 'en_peritaje').length;
   const inTransit = proyectos.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length;
@@ -78,12 +82,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
   const isAdmin = currentUser.rol.rol === 'Administrador';
 
   return (
+    <>
+    {mobileOpen && (
+      <div className="fixed inset-0 z-[35] bg-black/60 md:hidden" onClick={onCloseMobile} aria-hidden="true" />
+    )}
     <aside 
-      className={`fixed top-0 left-0 bottom-0 z-40 flex flex-col justify-between transition-all duration-300 ${
+      className={`fixed top-0 left-0 bottom-0 z-40 flex flex-col justify-between overflow-y-auto transition-all duration-300 ${
+        mobileOpen ? 'translate-x-0' : '-translate-x-full'
+      } md:translate-x-0 ${
         theme === 'light' 
           ? 'bg-white border-r border-slate-200 text-slate-800 shadow-md' 
           : 'bg-[#071120] border-r border-slate-800 text-slate-100'
       } ${collapsed ? 'w-20' : 'w-64'}`}
+      aria-label="Menú principal"
     >
       {/* Top Brand Logo Section */}
       <div>
@@ -109,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
               </button>
 
               <button
-                onClick={() => setCollapsed(true)}
+                onClick={() => (mobileOpen ? onCloseMobile?.() : setCollapsed(true))}
                 className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                   theme === 'light' 
                     ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100' 
@@ -155,7 +166,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => { setActiveTab(item.id); onCloseMobile?.(); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer relative group ${
                   isActive
                     ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/40 shadow-sm'
@@ -248,5 +259,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
         </button>
       </div>
     </aside>
+    </>
   );
 };
