@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useApp, canRole } from '../context/AppContext';
 import { InventarioProducto } from '../types/database';
 import { api, ApiError } from '../api';
+import { nombreConPresentacion } from '../mappers';
 import { ModalBackdrop, FieldError, bordeCampo, descargarCsv, hoyArchivo } from './ui';
 import {
   soloDigitos, errorRango, aNumero, limpiarLote, LOTE_RE, CANTIDAD_MAX, BODEGA_MIN, BODEGA_MAX, normalizarTexto,
@@ -33,6 +34,7 @@ export const InventoryModule: React.FC = () => {
     inventarios,
     productos,
     ciudades,
+    bodegas: bodegasDb,
     currentUser,
     actualizarStockInventario,
     agregarEntradaInventario,
@@ -53,22 +55,36 @@ export const InventoryModule: React.FC = () => {
     setSearchTerm(searchQuery || '');
   }, [searchQuery]);
 
-  // Bodegas reales registradas en el inventario, con su ciudad
-  const bodegas = useMemo(() => {
-    const map = new Map<string, { nombre: string; ciudadId: number; ciudad?: string }>();
+  const nombreCiudad = (ciudadId: number, fallback?: string) =>
+    ciudades.find(c => c.ciudadId === ciudadId)?.ciudad || fallback;
+
+  // Bodegas registradas en la BD (sucursales tipo "bodega"), con su ciudad
+  const bodegas = useMemo(
+    () => bodegasDb
+      .map(b => ({ sucursalId: b.sucursalId, nombre: b.nombre, ciudadId: b.ciudadId, ciudad: b.ciudad || nombreCiudad(b.ciudadId) }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [bodegasDb, ciudades],
+  );
+
+  // Clave de ubicación de un lote: su sucursal; los lotes antiguos sin sucursal se agrupan por nombre
+  const claveUbicacion = (inv: InventarioProducto) => inv.sucursalId || `nombre:${inv.nombreBodega}`;
+
+  // Opciones del filtro: las bodegas de la BD y, si hay lotes en otras sucursales (p. ej. tiendas), también esas
+  const opcionesFiltro = useMemo(() => {
+    const map = new Map<string, { clave: string; nombre: string; ciudad?: string }>();
+    bodegas.forEach(b => map.set(b.sucursalId, { clave: b.sucursalId, nombre: b.nombre, ciudad: b.ciudad }));
     inventarios.forEach(i => {
-      if (!map.has(i.nombreBodega)) {
-        map.set(i.nombreBodega, { nombre: i.nombreBodega, ciudadId: i.ciudadId, ciudad: i.ciudad?.ciudad });
-      }
+      const clave = claveUbicacion(i);
+      if (!map.has(clave)) map.set(clave, { clave, nombre: i.nombreBodega, ciudad: i.ciudad?.ciudad });
     });
     return Array.from(map.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  }, [inventarios]);
+  }, [bodegas, inventarios]);
 
   // Formulario de entrada (compartido entre el panel rápido y el modal)
   const [newEntryModalOpen, setNewEntryModalOpen] = useState(false);
   const [quickEntryExpanded, setQuickEntryExpanded] = useState(true);
   const [selectedProdId, setSelectedProdId] = useState('');
-  const [selectedBodegaName, setSelectedBodegaName] = useState('');
+  const [selectedBodegaId, setSelectedBodegaId] = useState('');
   const [nuevaBodegaNombre, setNuevaBodegaNombre] = useState('');
   const [nuevaBodegaCiudadId, setNuevaBodegaCiudadId] = useState<number | ''>('');
   const [loteInput, setLoteInput] = useState('');
@@ -85,11 +101,18 @@ export const InventoryModule: React.FC = () => {
   }, [productos, selectedProdId]);
 
   useEffect(() => {
-    if (selectedBodegaName === NUEVA_BODEGA) return;
-    if (!bodegas.some(b => b.nombre === selectedBodegaName)) {
-      setSelectedBodegaName(bodegas[0]?.nombre ?? NUEVA_BODEGA);
+    if (selectedBodegaId === NUEVA_BODEGA) return;
+    if (!bodegas.some(b => b.sucursalId === selectedBodegaId)) {
+      setSelectedBodegaId(bodegas[0]?.sucursalId ?? NUEVA_BODEGA);
     }
-  }, [bodegas, selectedBodegaName]);
+  }, [bodegas, selectedBodegaId]);
+
+  // Si el filtro apunta a una ubicación que ya no existe, vuelve a "todas"
+  useEffect(() => {
+    if (selectedBodegaFilter !== 'all' && !opcionesFiltro.some(o => o.clave === selectedBodegaFilter)) {
+      setSelectedBodegaFilter('all');
+    }
+  }, [opcionesFiltro, selectedBodegaFilter]);
 
   // Ajuste de la celda de stock: se edita en borrador y se guarda al salir del campo o con Enter
   const [stockDraft, setStockDraft] = useState<Record<string, string>>({});
@@ -100,8 +123,10 @@ export const InventoryModule: React.FC = () => {
     const matchesSearch =
       !term ||
       (inv.producto?.nombre && inv.producto.nombre.toLowerCase().includes(term)) ||
-      (inv.numeroLote && inv.numeroLote.toLowerCase().includes(term));
-    const matchesBodega = selectedBodegaFilter === 'all' || inv.nombreBodega === selectedBodegaFilter;
+      (inv.producto?.presentacion && inv.producto.presentacion.toLowerCase().includes(term)) ||
+      (inv.numeroLote && inv.numeroLote.toLowerCase().includes(term)) ||
+      inv.nombreBodega.toLowerCase().includes(term);
+    const matchesBodega = selectedBodegaFilter === 'all' || claveUbicacion(inv) === selectedBodegaFilter;
     return matchesSearch && matchesBodega;
   });
 
@@ -149,8 +174,8 @@ export const InventoryModule: React.FC = () => {
     }
   };
 
-  const esNuevaBodega = selectedBodegaName === NUEVA_BODEGA;
-  const bodegaSeleccionada = bodegas.find(b => b.nombre === selectedBodegaName);
+  const esNuevaBodega = selectedBodegaId === NUEVA_BODEGA;
+  const bodegaSeleccionada = bodegas.find(b => b.sucursalId === selectedBodegaId);
 
   // ---- Validación de la entrada de lote (mismos requisitos que POST /api/inventory + reglas de formato)
   const entryErrors: Partial<Record<CampoEntrada, string>> = {};
@@ -194,24 +219,26 @@ export const InventoryModule: React.FC = () => {
       return;
     }
 
-    const nombreBodega = esNuevaBodega ? normalizarTexto(nuevaBodegaNombre) : bodegaSeleccionada!.nombre;
-    const ciudadId = esNuevaBodega ? Number(nuevaBodegaCiudadId) : bodegaSeleccionada!.ciudadId;
     const tiempo = aNumero(tiempoDespachoInput);
+    const base = {
+      productoId: selectedProdId,
+      numeroLote: loteInput || undefined, // vacío: el servidor genera el número de lote
+      cantidadDisponible: aNumero(cantidadInput) as number,
+      tiempoDespacho: tiempo ?? undefined,
+    };
 
     setSavingEntry(true);
     try {
-      const creada = await agregarEntradaInventario({
-        productoId: selectedProdId,
-        ciudadId,
-        nombreBodega,
-        numeroLote: loteInput || undefined, // vacío: el servidor genera el número de lote
-        cantidadDisponible: aNumero(cantidadInput) as number,
-        tiempoDespacho: tiempo ?? undefined,
-      });
+      // Bodega existente: se envía su id; bodega nueva: nombre + ciudad y el servidor la crea
+      const creada = await agregarEntradaInventario(
+        esNuevaBodega
+          ? { ...base, nombreBodega: normalizarTexto(nuevaBodegaNombre), ciudadId: Number(nuevaBodegaCiudadId) }
+          : { ...base, sucursalId: bodegaSeleccionada!.sucursalId },
+      );
 
       if (!creada) return;
       setNewEntryModalOpen(false);
-      if (esNuevaBodega) setSelectedBodegaName(creada.nombreBodega);
+      if (esNuevaBodega && creada.sucursalId) setSelectedBodegaId(creada.sucursalId);
       resetEntrada();
     } finally {
       setSavingEntry(false);
@@ -222,15 +249,16 @@ export const InventoryModule: React.FC = () => {
 
   const productOptions = productos.map(p => (
     <option key={p.productoId} value={p.productoId}>
-      {p.nombre}{p.presentacion ? ` (${p.presentacion})` : ''}
+      {nombreConPresentacion(p)}
     </option>
   ));
 
   const bodegaOptions = (
     <>
+      {bodegas.length === 0 && <option value="" disabled>Sin bodegas registradas</option>}
       {bodegas.map(b => (
-        <option key={b.nombre} value={b.nombre}>
-          {b.nombre}{b.ciudad ? ` — ${b.ciudad}` : ''}
+        <option key={b.sucursalId} value={b.sucursalId}>
+          {b.nombre}{b.ciudad ? ` · ${b.ciudad}` : ''}
         </option>
       ))}
       <option value={NUEVA_BODEGA}>+ Nueva bodega…</option>
@@ -433,8 +461,8 @@ export const InventoryModule: React.FC = () => {
                     </label>
                     <select
                       aria-label="Bodega"
-                      value={selectedBodegaName}
-                      onChange={(e) => setSelectedBodegaName(e.target.value)}
+                      value={selectedBodegaId}
+                      onChange={(e) => setSelectedBodegaId(e.target.value)}
                       className={`${quickInputClass} ${bordeCampo(eErr('bodega'), isLight)}`}
                     >
                       {bodegaOptions}
@@ -559,9 +587,9 @@ export const InventoryModule: React.FC = () => {
                 }`}
               >
                 <option value="all">Todas las Bodegas</option>
-                {bodegas.map(b => (
-                  <option key={b.nombre} value={b.nombre}>
-                    {b.nombre}{b.ciudad ? ` — ${b.ciudad}` : ''}
+                {opcionesFiltro.map(o => (
+                  <option key={o.clave} value={o.clave}>
+                    {o.nombre}{o.ciudad ? ` · ${o.ciudad}` : ''}
                   </option>
                 ))}
               </select>
@@ -633,10 +661,10 @@ export const InventoryModule: React.FC = () => {
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-1.5 font-medium">
                             <MapPin className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-                            <span>{inv.nombreBodega}</span>
+                            <span data-testid="stock-bodega">{inv.sucursal?.nombre || inv.nombreBodega}</span>
                           </div>
                           <span className={`text-[10px] ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
-                            {inv.ciudad?.ciudad || '—'}
+                            {inv.sucursal?.ciudad || inv.ciudad?.ciudad || nombreCiudad(inv.sucursal?.ciudadId ?? inv.ciudadId) || '—'}
                           </span>
                         </td>
 
@@ -860,8 +888,8 @@ export const InventoryModule: React.FC = () => {
                 <label htmlFor="modal-bodega" className="block font-bold mb-1">Bodega de destino *</label>
                 <select
                   id="modal-bodega"
-                  value={selectedBodegaName}
-                  onChange={(e) => setSelectedBodegaName(e.target.value)}
+                  value={selectedBodegaId}
+                  onChange={(e) => setSelectedBodegaId(e.target.value)}
                   className={`${modalInputClass} ${bordeCampo(eErr('bodega'), isLight)}`}
                 >
                   {bodegaOptions}

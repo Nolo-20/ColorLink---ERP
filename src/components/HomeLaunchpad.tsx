@@ -46,7 +46,8 @@ export const HomeLaunchpad: React.FC = () => {
     setActiveTab, 
     hasModuleAccess, 
     proyectos, 
-    inventarios, 
+    inventarios,
+    bodegas,
     pedidos,
     setCalculatorModalOpen, 
     setSelectedProyecto,
@@ -65,7 +66,8 @@ export const HomeLaunchpad: React.FC = () => {
   
   const obrasActivas = proyectos.filter(p => !ESTADOS_PROYECTO_CERRADOS.includes(p.estadoPipeline)).length;
   const pedidosActivos = pedidos.filter(p => p.estadoPedido !== 'entregado_recogido' && p.estadoPedido !== 'cancelado').length;
-  const numBodegas = new Set(inventarios.map(i => i.nombreBodega).filter(Boolean)).size;
+  // Bodegas registradas en la BD (sucursales tipo "bodega")
+  const numBodegas = bodegas.length;
 
   const totalCunetes = proyectos.filter(p => p.estadoPipeline !== 'cancelado').reduce((acc, p) => {
     const q = p.cotizaciones && p.cotizaciones[0];
@@ -131,9 +133,9 @@ export const HomeLaunchpad: React.FC = () => {
       title: 'Inventarios & Bodegas',
       subtitle: 'Lotes & Existencias',
       description: numBodegas > 0
-        ? `Control de existencias por bodega (${Array.from(new Set(inventarios.map(i => i.nombreBodega).filter(Boolean))).slice(0, 3).join(', ')}${numBodegas > 3 ? '…' : ''}) y trazabilidad de lotes.`
+        ? `Control de existencias por bodega (${bodegas.slice(0, 3).map(b => b.nombre).join(', ')}${numBodegas > 3 ? '…' : ''}) y trazabilidad de lotes.`
         : 'Control de existencias por bodega y trazabilidad de lotes.',
-      badge: `${numBodegas} ${numBodegas === 1 ? 'Bodega' : 'Bodegas'} con inventario`,
+      badge: `${numBodegas} ${numBodegas === 1 ? 'Bodega registrada' : 'Bodegas registradas'}`,
       badgeColor: 'bg-cyan-950/80 text-cyan-300 border-cyan-500/40',
       cardBg: 'from-[#0b1f2b] to-[#081520] hover:from-[#0d2737] hover:to-[#0b1b2a]',
       borderColor: 'border-cyan-500/30 hover:border-cyan-500/70',

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 export const RoleDashboard: React.FC = () => {
-  const { proyectos, usuarios, inventarios, theme } = useApp();
+  const { proyectos, usuarios, inventarios, bodegas, theme } = useApp();
   const isLight = theme === 'light';
 
   // Aggregate metrics
@@ -46,7 +46,6 @@ export const RoleDashboard: React.FC = () => {
 
   // Total inventory units in bodegas
   const totalStockUnits = inventarios.reduce((acc, inv) => acc + (inv.cantidadDisponible || 0), 0);
-  const bodegas = Array.from(new Set(inventarios.map(i => i.nombreBodega).filter(Boolean)));
 
   // Cobertura por municipio calculada con los proyectos reales (ciudad de la empresa cliente)
   const porCiudad = Array.from(

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Calculator, X } from 'lucide-react';
 import { ModalBackdrop, FieldError } from './ui';
+import { claveLinea, PRESENTACION_CUNETE, PRESENTACION_GALON } from '../mappers';
 import { limpiarDecimal, aNumero, errorRango, AREA_MAX_M2, MANOS_MIN, MANOS_MAX } from '../validation';
 
 export const PaintCalculatorModal: React.FC = () => {
@@ -9,16 +10,26 @@ export const PaintCalculatorModal: React.FC = () => {
 
   const [area, setArea] = useState<string>('500');
   const [manos, setManos] = useState<number>(2);
-  // Se elige la LÍNEA de producto (nombre); sus presentaciones Cuñete/Galón dan los precios reales
-  const [lineaNombre, setLineaNombre] = useState<string>('');
+  // Se elige la LÍNEA de producto (lineaId); sus presentaciones cuñete 5 gal / galón 1 gal dan los precios reales
+  const [lineaClave, setLineaClave] = useState<string>('');
   const [desperdicioPct, setDesperdicioPct] = useState<number>(6);
 
   if (!calculatorModalOpen) return null;
   const cerrar = () => setCalculatorModalOpen(false);
 
-  const lineas = Array.from(new Set(productos.map(p => p.nombre))).sort((a, b) => a.localeCompare(b, 'es'));
-  const nombreActivo = lineas.includes(lineaNombre) ? lineaNombre : lineas[0];
-  const familia = productos.filter(p => p.nombre === nombreActivo);
+  // Solo las líneas de pintura: las que tienen presentación cuñete 5 gal o galón 1 gal
+  const esPintura = (codigo?: string) => codigo === PRESENTACION_CUNETE || codigo === PRESENTACION_GALON;
+  const lineasMap = new Map<string, { clave: string; nombre: string; rendimiento?: number }>();
+  productos.forEach(p => {
+    if (!esPintura(p.presentacionCodigo)) return;
+    const clave = claveLinea(p);
+    const cur = lineasMap.get(clave) || { clave, nombre: p.nombre, rendimiento: undefined };
+    if (!cur.rendimiento && p.rendimientoM2) cur.rendimiento = p.rendimientoM2;
+    lineasMap.set(clave, cur);
+  });
+  const lineas = Array.from(lineasMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const claveActiva = lineasMap.has(lineaClave) ? lineaClave : lineas[0]?.clave;
+  const familia = productos.filter(p => claveLinea(p) === claveActiva && esPintura(p.presentacionCodigo));
   const selectedProd = familia.find(p => p.rendimientoM2 && p.rendimientoM2 > 0) || familia[0];
 
   // El catálogo llega del servidor: si aún no carga o está vacío, no hay nada que calcular
@@ -46,8 +57,8 @@ export const PaintCalculatorModal: React.FC = () => {
   const galones1g = residuo > 0.0001 ? Math.ceil(residuo) : 0;
 
   // Precios del catálogo real: cada presentación con su precio; si falta una, se deriva como lo hace el servidor (factor 4.6)
-  const cuneteProd = familia.find(p => p.presentacion?.includes('Cuñete'));
-  const galonProd = familia.find(p => p.presentacion?.includes('Galón'));
+  const cuneteProd = familia.find(p => p.presentacionCodigo === PRESENTACION_CUNETE);
+  const galonProd = familia.find(p => p.presentacionCodigo === PRESENTACION_GALON);
   const precioGalon = galonProd?.precio ?? (cuneteProd?.precio ? cuneteProd.precio / 4.6 : selectedProd.precio);
   const precioCunete = cuneteProd?.precio ?? (galonProd?.precio ? galonProd.precio * 4.6 : selectedProd.precio);
   const totalEstimado = precioGalon && precioCunete
@@ -129,18 +140,15 @@ export const PaintCalculatorModal: React.FC = () => {
               Línea de Recubrimiento ColorLink
             </label>
             <select
-              value={nombreActivo}
-              onChange={(e) => setLineaNombre(e.target.value)}
+              value={claveActiva}
+              onChange={(e) => setLineaClave(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
             >
-              {lineas.map(nombre => {
-                const r = productos.find(p => p.nombre === nombre && p.rendimientoM2)?.rendimientoM2;
-                return (
-                  <option key={nombre} value={nombre}>
-                    {nombre} ({r ? `${r} m²/gal` : 'sin rendimiento'})
-                  </option>
-                );
-              })}
+              {lineas.map(l => (
+                <option key={l.clave} value={l.clave}>
+                  {l.nombre} ({l.rendimiento ? `${l.rendimiento} m²/gal` : 'sin rendimiento'})
+                </option>
+              ))}
             </select>
           </div>
 

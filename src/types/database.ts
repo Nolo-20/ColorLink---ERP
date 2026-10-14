@@ -25,6 +25,20 @@ export interface Rol {
 export interface Ciudad {
   ciudadId: number;
   ciudad: string;
+  departamento?: string;
+  domicilio?: boolean; // hay entrega a domicilio en esta ciudad
+}
+
+/** Tienda o bodega registrada (tabla `sucursal`, GET /api/branches). */
+export interface Sucursal {
+  sucursalId: string;
+  nombre: string;
+  tipo: 'tienda' | 'bodega';
+  ciudadId: number;
+  ciudad?: string;
+  departamento?: string;
+  direccion?: string;
+  telefono?: string;
 }
 
 export interface Usuario {
@@ -113,7 +127,12 @@ export interface Producto {
   productoId: string;
   nombre: string;
   categoria?: string;
-  presentacion?: string; // Cuñete 5 Gal, Galón 1 Gal, Caneca 55 Gal
+  lineaId?: string; // línea de producto de la tienda (todas sus presentaciones comparten lineaId)
+  tamanoId?: string; // id de la presentación en la tienda (galon, cunete…)
+  presentacionCodigo?: string; // código crudo de la BD: 'galon_1gal', 'cunete_5gal' u otro
+  presentacion?: string; // etiqueta legible: "1 Galón", "5 Galones (Cuñete)"…
+  capacidadLitros?: number;
+  sku?: string;
   rendimientoM2?: number; // m2 por galón
   acabado?: 'Mate' | 'Satinado' | 'Semibrillante' | 'Brillante';
   precio?: number; // Precio COP por unidad
@@ -130,7 +149,9 @@ export interface InventarioProducto {
   producto?: Producto;
   ciudadId: number;
   ciudad?: Ciudad;
-  nombreBodega: string; // ej: Bodega Central Guayabal, Bodega Industrial Itagüí, Bodega Norte Bello
+  sucursalId?: string; // bodega (sucursal) donde está el lote
+  sucursal?: Sucursal;
+  nombreBodega: string; // nombre de la sucursal (o el texto histórico si el lote no tiene sucursal)
   numeroLote?: string;
   cantidadDisponible: number; // en unidades (galones o cuñetes)
   fechaTinturado?: string;

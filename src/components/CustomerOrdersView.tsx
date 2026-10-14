@@ -32,7 +32,7 @@ const HORAS_MAX = 240;
 type CampoDespacho = 'guia' | 'placa' | 'horas' | 'conductor' | 'telefono' | 'transportador' | 'direccion' | 'ciudad';
 
 export const CustomerOrdersView: React.FC = () => {
-  const { proyectos, despacharProyecto, inventarios, ciudades, theme } = useApp();
+  const { proyectos, despacharProyecto, bodegas: bodegasDb, ciudades, theme } = useApp();
   const isLight = theme === 'light';
 
   // Se guardan solo los ids: el proyecto se lee siempre de la lista viva del contexto
@@ -54,9 +54,10 @@ export const CustomerOrdersView: React.FC = () => {
   const [ciudad, setCiudad] = useState('');
   const [touched, setTouched] = useState<Partial<Record<CampoDespacho, boolean>>>({});
 
+  // Bodegas registradas en la BD (sucursales tipo "bodega")
   const bodegas = useMemo(
-    () => Array.from(new Set(inventarios.map(i => i.nombreBodega).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es')),
-    [inventarios],
+    () => [...bodegasDb].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [bodegasDb],
   );
   const ciudadOptions = useMemo(() => {
     const set = new Set(ciudades.map(c => c.ciudad));
@@ -491,7 +492,7 @@ export const CustomerOrdersView: React.FC = () => {
                     }`}
                   >
                     <option value="">Sin especificar</option>
-                    {bodegas.map(b => <option key={b} value={b}>{b}</option>)}
+                    {bodegas.map(b => <option key={b.sucursalId} value={b.nombre}>{b.nombre}{b.ciudad ? ` · ${b.ciudad}` : ''}</option>)}
                   </select>
                 </div>
               </div>

@@ -39,6 +39,18 @@ async function request<T = any>(method: string, path: string, body?: unknown): P
   return data as T;
 }
 
+/** Datos comunes de una entrada de inventario. */
+interface EntradaInventarioBase {
+  productoId: string;
+  numeroLote?: string;
+  cantidadDisponible: number;
+  tiempoDespacho?: number;
+}
+
+export type NuevaEntradaInventario =
+  | (EntradaInventarioBase & { sucursalId: string })
+  | (EntradaInventarioBase & { nombreBodega: string; ciudadId: number });
+
 const get = <T = any>(path: string) => request<T>('GET', path);
 const post = <T = any>(path: string, body?: unknown) => request<T>('POST', path, body ?? {});
 const patch = <T = any>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {});
@@ -87,15 +99,13 @@ export const api = {
   setStock: (inventarioId: string, cantidad: number) => patch(`/api/inventory/${inventarioId}`, { cantidad }),
   /** Ajuste relativo (+/-): el backend suma `delta` al valor actual, sin pisar cambios concurrentes. */
   adjustStock: (inventarioId: string, delta: number) => patch(`/api/inventory/${inventarioId}`, { delta }),
-  createStockEntry: (body: {
-    productoId: string;
-    ciudadId: number;
-    nombreBodega: string;
-    numeroLote?: string;
-    cantidadDisponible: number;
-    tiempoDespacho?: number;
-  }) => post('/api/inventory', body),
+  /** Entrada de lote en una bodega existente (`sucursalId`) o en una nueva (`nombreBodega` + `ciudadId`). */
+  createStockEntry: (body: NuevaEntradaInventario) => post('/api/inventory', body),
+  /** Ciudades registradas: { cities: [{ ciudadId, ciudad, departamento, domicilio }] }. */
   getCities: () => get('/api/cities'),
+  /** Sucursales: por defecto solo tiendas; 'bodega' solo bodegas; 'todas' ambas. */
+  getBranches: (tipo?: 'bodega' | 'tienda' | 'todas') =>
+    get(tipo && tipo !== 'tienda' ? `/api/branches?tipo=${tipo}` : '/api/branches'),
 
   // ---------- Personas ----------
   getStaffByRole: (role: 'asesor' | 'calidad') => get(`/api/users?role=${role}`),

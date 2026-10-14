@@ -18,6 +18,8 @@ import {
   Producto,
   InventarioProducto,
   EvidenciaFoto,
+  Ciudad,
+  Sucursal,
 } from './types/database';
 
 // ---------------------------------------------------------------- Roles
@@ -108,20 +110,66 @@ const ACABADOS: Record<string, Producto['acabado']> = {
   mate: 'Mate', satinado: 'Satinado', semibrillante: 'Semibrillante', brillante: 'Brillante',
 };
 
+/** Códigos de presentación que usa el motor de cotización (cuñete 5 gal y galón 1 gal). */
+export const PRESENTACION_CUNETE = 'cunete_5gal';
+export const PRESENTACION_GALON = 'galon_1gal';
+
 const PRESENTACION_LABEL: Record<string, string> = {
-  cunete_5gal: 'Cuñete 5 Gal',
-  galon_1gal: 'Galón 1 Gal',
+  [PRESENTACION_CUNETE]: 'Cuñete 5 Gal',
+  [PRESENTACION_GALON]: 'Galón 1 Gal',
 };
+
+/** Etiqueta legible de una presentación: el nombre del tamaño en la tienda, o el código traducido. */
+export function etiquetaPresentacion(raw: any): string | undefined {
+  if (!raw) return undefined;
+  return raw.tamanoNombre || PRESENTACION_LABEL[raw.presentacion] || raw.presentacion || undefined;
+}
 
 export function mapProducto(raw: any): Producto {
   return {
     productoId: raw.productoId,
     nombre: raw.nombre,
     categoria: raw.categoria || undefined,
-    presentacion: PRESENTACION_LABEL[raw.presentacion] || raw.presentacion || undefined,
+    lineaId: raw.lineaId || undefined,
+    tamanoId: raw.tamanoId || undefined,
+    presentacionCodigo: raw.presentacion || undefined,
+    presentacion: etiquetaPresentacion(raw),
+    capacidadLitros: raw.capacidadLitros ?? undefined,
+    sku: raw.sku || undefined,
     rendimientoM2: raw.rendimientoM2 ?? undefined,
     acabado: raw.acabado ? ACABADOS[String(raw.acabado).toLowerCase()] : undefined,
     precio: raw.precio ?? undefined,
+  };
+}
+
+/** Clave de la línea de producto: agrupa las presentaciones (galón, cuñete…) de un mismo producto. */
+export const claveLinea = (p: Producto) => p.lineaId || `nombre:${p.nombre}`;
+
+/** Texto para selectores: "Nombre — Presentación". */
+export const nombreConPresentacion = (p: Producto) => (p.presentacion ? `${p.nombre} — ${p.presentacion}` : p.nombre);
+
+// ---------------------------------------------------------------- Ciudades y sucursales
+
+export function mapCiudad(raw: any): Ciudad {
+  return {
+    ciudadId: raw.ciudadId,
+    ciudad: raw.ciudad,
+    departamento: raw.departamento || undefined,
+    domicilio: raw.domicilio ?? undefined,
+  };
+}
+
+/** Sucursal de GET /api/branches. */
+export function mapSucursal(raw: any): Sucursal {
+  return {
+    sucursalId: raw.id,
+    nombre: raw.name,
+    tipo: raw.tipo === 'bodega' ? 'bodega' : 'tienda',
+    ciudadId: raw.ciudadId,
+    ciudad: raw.city || undefined,
+    departamento: raw.department || undefined,
+    direccion: raw.address || undefined,
+    telefono: raw.phone || undefined,
   };
 }
 
@@ -170,7 +218,7 @@ function mapCotizacion(raw: any): Cotizacion {
     cantidad: it.cantidad ?? 0,
     precioUnitario: it.precioUnitario ?? 0,
     total: it.total ?? 0,
-    unidadMedida: it.producto?.presentacion === 'cunete_5gal' ? 'cuñete_5g' : 'galon_1g',
+    unidadMedida: it.producto?.presentacion === PRESENTACION_CUNETE ? 'cuñete_5g' : 'galon_1g',
   }));
   const num = (v: any): number | undefined => (v == null || v === '' || !Number.isFinite(Number(v)) ? undefined : Number(v));
   const cunetes5g = num(raw.cunetes5g);
@@ -371,7 +419,7 @@ export function mapPedido(raw: any): PedidoTienda {
       itemId: it.ordenItemId,
       productoId: it.productoId || it.codigoProductoExterno || '',
       nombre: it.nombreProducto,
-      presentacion: it.producto?.presentacion ? PRESENTACION_LABEL[it.producto.presentacion] || it.producto.presentacion : '',
+      presentacion: etiquetaPresentacion(it.producto) || '',
       cantidad: it.cantidad,
       precioUnitario: it.precioUnitario,
       total: it.subtotal,
@@ -393,8 +441,20 @@ export function mapInventario(raw: any): InventarioProducto {
     productoId: raw.productoId,
     producto: raw.producto ? mapProducto(raw.producto) : undefined,
     ciudadId: raw.ciudadId,
-    ciudad: raw.ciudad ? { ciudadId: raw.ciudad.ciudadId, ciudad: raw.ciudad.ciudad } : undefined,
-    nombreBodega: raw.nombreBodega || 'Sin bodega asignada',
+    ciudad: raw.ciudad ? mapCiudad(raw.ciudad) : undefined,
+    sucursalId: raw.sucursalId || raw.sucursal?.sucursalId || undefined,
+    sucursal: raw.sucursal
+      ? {
+          sucursalId: raw.sucursal.sucursalId,
+          nombre: raw.sucursal.nombre,
+          tipo: raw.sucursal.tipo === 'tienda' ? 'tienda' : 'bodega',
+          ciudadId: raw.sucursal.ciudadId,
+          ciudad: raw.ciudad?.ciudadId === raw.sucursal.ciudadId ? raw.ciudad.ciudad : undefined,
+          direccion: raw.sucursal.direccion || undefined,
+          telefono: raw.sucursal.telefono || undefined,
+        }
+      : undefined,
+    nombreBodega: raw.sucursal?.nombre || raw.nombreBodega || 'Sin bodega asignada',
     numeroLote: raw.numeroLote || undefined,
     cantidadDisponible: raw.cantidadDisponible ?? 0,
     fechaTinturado: raw.fechaTinturado || undefined,

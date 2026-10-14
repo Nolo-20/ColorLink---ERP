@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ESTADO_PROYECTO_LABEL } from '../estados';
 import { useApp, canRole } from '../context/AppContext';
-import { Proyecto } from '../types/database';
+import { Proyecto, Producto } from '../types/database';
+import { claveLinea, PRESENTACION_CUNETE } from '../mappers';
 import { 
   Calculator, 
   CheckCircle2, 
@@ -67,8 +68,22 @@ export const AdvisorProjectManager: React.FC = () => {
 
 
   // Form states for technical quotation calculator
-  // Solo se cotiza con productos que tienen presentación Cuñete (el servidor arma cuñetes + galones de la misma línea)
-  const productosCunete = productos.filter(p => p.presentacion?.includes('Cuñete'));
+  // Una opción por línea de producto que tenga presentación cuñete 5 gal (el servidor arma cuñetes + galones de la misma línea).
+  // GET /api/inventory ya entrega solo productos activos.
+  const productosCunete = useMemo(() => {
+    const porLinea = new Map<string, Producto>();
+    productos.forEach(p => {
+      if (p.presentacionCodigo !== PRESENTACION_CUNETE) return;
+      const clave = claveLinea(p);
+      if (porLinea.has(clave)) return;
+      // El servidor usa el rendimiento del producto enviado: si el cuñete no lo tiene, se envía otra presentación de la línea que sí
+      const conRendimiento = p.rendimientoM2
+        ? p
+        : productos.find(o => claveLinea(o) === clave && o.nombre === p.nombre && o.rendimientoM2) || p;
+      porLinea.set(clave, conRendimiento);
+    });
+    return Array.from(porLinea.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }, [productos]);
 
   // Los campos numéricos se guardan como texto ya limpio: nunca se envía NaN ni un valor vacío
   const [calcArea, setCalcArea] = useState<string>(activeProject?.area ? String(activeProject.area) : '');
@@ -85,7 +100,7 @@ export const AdvisorProjectManager: React.FC = () => {
     if (!productosCunete.some(p => p.productoId === calcProductoId)) {
       setCalcProductoId(productosCunete[0]?.productoId || '');
     }
-  }, [productos, calcProductoId]);
+  }, [productosCunete, calcProductoId]);
 
   // Al cambiar de proyecto (o cuando llega del servidor) se cargan su área y su descuento reales
   useEffect(() => {

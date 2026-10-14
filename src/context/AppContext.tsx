@@ -13,8 +13,9 @@ import {
   PedidoTienda,
   EstadoPedido,
   Ciudad,
+  Sucursal,
 } from '../types/database';
-import { api, ApiError } from '../api';
+import { api, ApiError, NuevaEntradaInventario } from '../api';
 import {
   mapSessionUser,
   mapUsuario,
@@ -22,6 +23,8 @@ import {
   mapPedido,
   mapProducto,
   mapInventario,
+  mapCiudad,
+  mapSucursal,
   estadoPedidoToApi,
   ROLE_TO_API,
   STAFF_ROLES_API,
@@ -80,6 +83,8 @@ interface AppContextType {
   productos: Producto[];
   empresas: EmpresaCliente[];
   ciudades: Ciudad[];
+  /** Bodegas registradas en la BD (sucursales tipo "bodega"). */
+  bodegas: Sucursal[];
   pedidos: PedidoTienda[];
   dataLoading: boolean;
   refreshData: () => Promise<void>;
@@ -135,14 +140,8 @@ interface AppContextType {
 
   // Inventario
   actualizarStockInventario: (inventarioId: string, cantidad: number) => Promise<boolean>;
-  agregarEntradaInventario: (entrada: {
-    productoId: string;
-    ciudadId: number;
-    nombreBodega: string;
-    numeroLote?: string;
-    cantidadDisponible: number;
-    tiempoDespacho?: number;
-  }) => Promise<InventarioProducto | null>;
+  /** Con `sucursalId` registra el lote en una bodega existente; con `nombreBodega` + `ciudadId` crea la bodega. */
+  agregarEntradaInventario: (entrada: NuevaEntradaInventario) => Promise<InventarioProducto | null>;
 
   // Empleados
   crearUsuario: (nuevo: {
@@ -202,6 +201,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [inventarios, setInventarios] = useState<InventarioProducto[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [ciudades, setCiudades] = useState<Ciudad[]>([]);
+  const [bodegas, setBodegas] = useState<Sucursal[]>([]);
   const [pedidos, setPedidos] = useState<PedidoTienda[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [mensajesSinLeer, setMensajesSinLeer] = useState<Record<string, number>>({});
@@ -298,7 +298,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loadCities = useCallback(async () => {
     const r = await api.getCities();
-    setCiudades((r.cities || []).map((c: any) => ({ ciudadId: c.ciudadId, ciudad: c.ciudad })));
+    setCiudades((r.cities || []).map(mapCiudad));
+  }, []);
+
+  const loadBodegas = useCallback(async () => {
+    const r = await api.getBranches('bodega');
+    setBodegas((r.branches || []).map(mapSucursal).filter((b: Sucursal) => b.tipo === 'bodega'));
   }, []);
 
   const loadStaff = useCallback(async (role: string) => {
@@ -334,6 +339,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       loadOrders(role),
       loadInventory(),
       loadCities(),
+      loadBodegas(),
       loadStaff(role),
       loadUnread(role),
     ]);
@@ -346,7 +352,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else if (failed.length > 0 && !silent) {
       showToast(handleApiError(failed[0].reason, 'No se pudieron cargar algunos datos del servidor.'));
     }
-  }, [loadProjects, loadOrders, loadInventory, loadCities, loadStaff, loadUnread, handleApiError, showToast]);
+  }, [loadProjects, loadOrders, loadInventory, loadCities, loadBodegas, loadStaff, loadUnread, handleApiError, showToast]);
 
   const refreshData = useCallback(async () => {
     if (roleApi) await loadAll(roleApi, false);
@@ -609,6 +615,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const r = await api.createStockEntry(entrada);
       const item = mapInventario(r.item);
       setInventarios(prev => [item, ...prev]);
+      // Si se creó una bodega nueva, se recarga la lista de bodegas desde la BD
+      if (!('sucursalId' in entrada) || (item.sucursalId && !bodegas.some(b => b.sucursalId === item.sucursalId))) {
+        try {
+          await loadBodegas();
+        } catch {
+          /* la lista se refresca en la próxima recarga */
+        }
+      }
       showToast(`Entrada registrada: ${item.cantidadDisponible} unidades en ${item.nombreBodega}.`);
       return item;
     } catch (err) {
@@ -740,7 +754,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         currentUser, authLoading,
-        usuarios, proyectos, inventarios, productos, empresas, ciudades, pedidos,
+        usuarios, proyectos, inventarios, productos, empresas, ciudades, bodegas, pedidos,
         dataLoading, refreshData,
         activeTab, setActiveTab, hasModuleAccess,
         selectedProyecto, setSelectedProyecto, selectedPedido, setSelectedPedido,
