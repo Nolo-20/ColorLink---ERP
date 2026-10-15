@@ -537,7 +537,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sistemaRecomendado: data.sistemaRecomendado,
       });
       upsertProyecto(r.project);
-      showToast('Dictamen técnico de Calidad registrado.');
+      showToast(data.aprobadoCalidad
+        ? 'Sustrato aprobado. El proyecto pasó a Despachos y se le avisó al cliente.'
+        : 'Sustrato rechazado. Se le avisó al cliente para que corrija la superficie.');
       return true;
     } catch (err) {
       showToast(handleApiError(err, 'No se pudo guardar el dictamen.'));

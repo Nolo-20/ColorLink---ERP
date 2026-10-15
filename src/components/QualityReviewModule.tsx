@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useApp, canRole } from '../context/AppContext';
+import { useApp, canRole, ROLE_PERMISSIONS } from '../context/AppContext';
 import { Proyecto, DiagnosticoIA } from '../types/database';
 import { ESTADO_PROYECTO_LABEL } from '../estados';
 import { 
@@ -41,6 +41,7 @@ export const QualityReviewModule: React.FC = () => {
     setSelectedProyecto, 
     showToast,
     mensajesSinLeer,
+    setActiveTab,
     theme
   } = useApp();
 
@@ -57,6 +58,9 @@ export const QualityReviewModule: React.FC = () => {
   const [pidiendoImagen, setPidiendoImagen] = useState(false);
   const [pidiendoImagenBusy, setPidiendoImagenBusy] = useState(false);
   const [guardandoVeredicto, setGuardandoVeredicto] = useState(false);
+  // Un proyecto ya aprobado no muestra los botones de dictamen salvo que el perito quiera corregirlo
+  const [corrigiendo, setCorrigiendo] = useState(false);
+  useEffect(() => { setCorrigiendo(false); }, [activeProject?.proyectoId]);
 
   // Cuando llegan datos nuevos del servidor, refresca el proyecto abierto
   useEffect(() => {
@@ -155,6 +159,7 @@ export const QualityReviewModule: React.FC = () => {
         notasPerito: notasPerito.trim() || undefined,
         aprobadoCalidad: aprobado,
       });
+      setCorrigiendo(false);
     } finally {
       setGuardandoVeredicto(false);
     }
@@ -338,6 +343,63 @@ export const QualityReviewModule: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Qué sigue después del dictamen */}
+              {(activeProject.estadoPipeline === 'aprobado_calidad' || activeProject.estadoPipeline === 'rechazado' || activeProject.estadoPipeline === 'despachado') && (() => {
+                const rol = currentUser?.rol.rol as keyof typeof ROLE_PERMISSIONS | undefined;
+                const veDespachos = !!rol && ROLE_PERMISSIONS[rol]?.includes('despachos');
+                const paso = activeProject.estadoPipeline === 'aprobado_calidad'
+                  ? {
+                      tono: isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-100',
+                      titulo: 'Sustrato aprobado: el proyecto pasó a Despachos',
+                      pasos: [
+                        'Se le avisó al cliente que su proyecto fue aprobado y está en preparación de despacho.',
+                        'El Jefe de Despachos alista los cuñetes/galones de la cotización y registra el despacho (transportadora, guía y fecha) en el Módulo de Despachos.',
+                        'Cuando el material llegue a la obra se marca como entregado y el proyecto queda cerrado.',
+                      ],
+                    }
+                  : activeProject.estadoPipeline === 'rechazado'
+                  ? {
+                      tono: isLight ? 'bg-rose-50 border-rose-300 text-rose-900' : 'bg-rose-950/40 border-rose-500/40 text-rose-100',
+                      titulo: 'Sustrato rechazado: el cliente debe corregir',
+                      pasos: [
+                        'Se le avisó al cliente que la superficie requiere ajustes técnicos, con tus notas.',
+                        'Cuando el cliente corrija (o el asesor coordine una visita), vuelve a medir y emite un nuevo dictamen aquí mismo.',
+                      ],
+                    }
+                  : {
+                      tono: isLight ? 'bg-sky-50 border-sky-300 text-sky-900' : 'bg-sky-950/40 border-sky-500/40 text-sky-100',
+                      titulo: 'Material despachado',
+                      pasos: ['El proyecto ya salió de bodega. El seguimiento de la entrega está en el Módulo de Despachos.'],
+                    };
+                return (
+                  <div className={`border rounded-xl p-4 mb-5 ${paso.tono}`} data-testid="calidad-siguiente-paso">
+                    <p className="text-xs font-black uppercase tracking-wider mb-2">¿Qué sigue?</p>
+                    <p className="text-sm font-bold mb-2">{paso.titulo}</p>
+                    <ol className="list-decimal pl-5 space-y-1 text-xs leading-relaxed">
+                      {paso.pasos.map((t, i) => <li key={i}>{t}</li>)}
+                    </ol>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {activeProject.estadoPipeline !== 'rechazado' && veDespachos && (
+                        <button type="button" onClick={() => setActiveTab('despachos')} className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold cursor-pointer">
+                          Ir al Módulo de Despachos
+                        </button>
+                      )}
+                      {activeProject.estadoPipeline !== 'rechazado' && !veDespachos && (
+                        <span className="text-[11px] opacity-80">El Jefe de Despachos ya lo ve en su cola de alistamiento.</span>
+                      )}
+                      {(() => {
+                        const siguiente = proyectos.find(p => p.estadoPipeline === 'en_peritaje' && p.proyectoId !== activeProject.proyectoId);
+                        return siguiente ? (
+                          <button type="button" onClick={() => handleSelectProject(siguiente)} className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${isLight ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50' : 'bg-slate-900 border-slate-600 text-white hover:bg-slate-800'}`}>
+                            Siguiente en peritaje: {siguiente.nombreProyecto}
+                          </button>
+                        ) : null;
+                      })()}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Imagen enviada por el cliente */}
               <div className={`border rounded-xl p-4 mb-5 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
@@ -544,6 +606,13 @@ export const QualityReviewModule: React.FC = () => {
                 {/* Verdict Buttons */}
                 {canRole.emitirVeredicto(currentUser?.rol.rol) && proyectoCerrado ? (
                   <p className="pt-2 text-xs text-slate-400">Este proyecto ya está cerrado ({ESTADO_PROYECTO_LABEL[activeProject.estadoPipeline]}); no admite un nuevo dictamen.</p>
+                ) : canRole.emitirVeredicto(currentUser?.rol.rol) && activeProject.estadoPipeline === 'aprobado_calidad' && !corrigiendo ? (
+                  <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-slate-400">Dictamen emitido: sustrato aprobado y despacho autorizado.</p>
+                    <button type="button" onClick={() => setCorrigiendo(true)} className="text-xs font-bold text-amber-500 hover:underline cursor-pointer">
+                      Corregir dictamen
+                    </button>
+                  </div>
                 ) : canRole.emitirVeredicto(currentUser?.rol.rol) ? (
                 <div className="pt-2 flex flex-col sm:flex-row gap-3">
                   <button

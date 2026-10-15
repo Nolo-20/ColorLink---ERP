@@ -21,7 +21,7 @@ import {
   UserPlus,
   UserCheck
 } from 'lucide-react';
-import { ModalBackdrop, FieldError, bordeCampo } from './ui';
+import { ModalBackdrop, FieldError, bordeCampo, ColorDots } from './ui';
 import { errorTexto } from '../validation';
 
 const NOTA_ESTADO_MAX = 500;
@@ -280,10 +280,7 @@ export const PipelineTraceability: React.FC = () => {
                   <div className="flex items-center justify-between text-xs">
                     <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>Color seleccionado:</span>
                     <div className={`flex items-center gap-1.5 font-medium ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                      <span 
-                        className="w-3.5 h-3.5 rounded-full border border-slate-300 dark:border-white/20 shadow-sm inline-block"
-                        style={{ backgroundColor: proy.colorHex || '#CBD5E1' }}
-                      />
+                      <ColorDots colorHex={proy.colorHex} className="w-3.5 h-3.5" />
                       <span>{proy.color || '—'}</span>
                     </div>
                   </div>

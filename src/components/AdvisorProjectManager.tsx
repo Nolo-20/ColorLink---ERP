@@ -21,7 +21,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { ProjectChatPanel } from './ProjectChatPanel';
-import { FieldError, bordeCampo } from './ui';
+import { FieldError, bordeCampo, ColorDots } from './ui';
 import {
   limpiarDecimal, aNumero, errorRango, errorTexto, AREA_MAX_M2, MANOS_MIN, MANOS_MAX, DESCUENTO_MAX_PCT,
 } from '../validation';
@@ -297,10 +297,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/80 text-slate-400'
                   }`}>
                     <div className="flex items-center gap-1.5">
-                      <span
-                        className="w-3 h-3 rounded-full border border-slate-300 dark:border-white/20"
-                        style={{ backgroundColor: p.colorHex || '#CBD5E1' }}
-                      />
+                      <ColorDots colorHex={p.colorHex} />
                       <span className={`text-[11px] ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{p.color || 'Sin color'}</span>
                     </div>
 
@@ -453,16 +450,13 @@ export const AdvisorProjectManager: React.FC = () => {
                 <div>
                   <span className={`text-[11px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Color de Formulación</span>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span 
-                      className="w-4 h-4 rounded-full border border-slate-300 dark:border-white/30 shadow-inner flex-shrink-0"
-                      style={{ backgroundColor: activeProject.colorHex || '#CBD5E1' }}
-                    />
+                    <ColorDots colorHex={activeProject.colorHex} className="w-4 h-4" />
                     <span className={`text-xs font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
                       {activeProject.color || '—'}
                     </span>
                   </div>
                   <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    HEX: {activeProject.colorHex || '—'}
+                    HEX: {activeProject.colorHex ? activeProject.colorHex.split(',').join(' · ') : '—'}
                   </span>
                 </div>
 

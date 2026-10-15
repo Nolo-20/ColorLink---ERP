@@ -102,3 +102,16 @@ export const hoyArchivo = () => {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
+
+/** Muestras de color de un proyecto (hasta 3 colores: hex separados por coma). */
+export const ColorDots: React.FC<{ colorHex?: string | null; className?: string }> = ({ colorHex, className = 'w-3 h-3' }) => {
+  const hexes = String(colorHex || '').split(',').map(h => h.trim()).filter(Boolean);
+  const lista = hexes.length ? hexes : ['#CBD5E1'];
+  return (
+    <span className="inline-flex -space-x-1 flex-shrink-0">
+      {lista.map((h, i) => (
+        <span key={i} className={`${className} rounded-full border border-slate-300 dark:border-white/20 inline-block shadow-sm`} style={{ backgroundColor: h }} />
+      ))}
+    </span>
+  );
+};

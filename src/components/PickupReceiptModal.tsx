@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { ModalBackdrop, FieldError } from './ui';
+import { ModalBackdrop, FieldError, ColorDots } from './ui';
 import { limpiarLetras, soloDigitos, errorNombrePersona, normalizarTexto } from '../validation';
 
 const RECIBE_MIN = 3;
@@ -188,10 +188,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
                     </td>
                     <td className="p-2.5">
                       <div className="flex items-center gap-1.5 font-medium text-slate-200">
-                        <span 
-                          className="w-3 h-3 rounded-full border border-white/20 inline-block"
-                          style={{ backgroundColor: proyecto.colorHex || '#CBD5E1' }}
-                        />
+                        <ColorDots colorHex={proyecto.colorHex} />
                         <span>{proyecto.color || '—'}</span>
                       </div>
                     </td>
