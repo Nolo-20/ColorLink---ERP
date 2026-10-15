@@ -99,7 +99,7 @@ export function mapUsuario(raw: any): Usuario {
 
 const ESTADOS_PROYECTO: EstadoPipeline[] = [
   'en_revision', 'imagen_por_corregir', 'en_peritaje', 'cotizado',
-  'aprobado_calidad', 'rechazado', 'despachado', 'cancelado',
+  'aprobado_calidad', 'rechazado', 'despachado', 'entregado', 'cancelado',
 ];
 
 export function normalizeEstadoProyecto(e: string | null | undefined): EstadoPipeline {

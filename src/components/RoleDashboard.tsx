@@ -21,7 +21,7 @@ export const RoleDashboard: React.FC = () => {
   // Aggregate metrics
   const totalProyectos = proyectos.length;
   const enRuta = proyectos.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length;
-  const entregados = proyectos.filter(p => p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega).length;
+  const entregados = proyectos.filter(p => (p.estadoPipeline === 'entregado' || (p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega))).length;
   const enCalidad = proyectos.filter(p => p.estadoPipeline === 'en_peritaje').length;
 
   // Los proyectos cancelados no cuentan como portafolio activo
@@ -54,7 +54,7 @@ export const RoleDashboard: React.FC = () => {
       const cur = map.get(ciudad) || { ciudad, proyectos: 0, cunetes: 0, despachados: 0 };
       cur.proyectos += 1;
       cur.cunetes += p.cotizaciones?.[0]?.cunetes5g || 0;
-      if (p.estadoPipeline === 'despachado') cur.despachados += 1;
+      if (p.estadoPipeline === 'despachado' || p.estadoPipeline === 'entregado') cur.despachados += 1;
       map.set(ciudad, cur);
       return map;
     }, new Map<string, { ciudad: string; proyectos: number; cunetes: number; despachados: number }>()).values()

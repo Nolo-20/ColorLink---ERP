@@ -22,6 +22,7 @@ const PROYECTOS: { key: EstadoPipeline; descripcion: string; quien: string }[] =
   { key: 'aprobado_calidad', descripcion: 'El perito dictaminó que el sistema es viable. Queda listo para despacho.', quien: 'Perito de Calidad / Administrador' },
   { key: 'rechazado', descripcion: 'El perito pidió ajustes técnicos antes de continuar.', quien: 'Perito de Calidad / Administrador' },
   { key: 'despachado', descripcion: 'Salió el vehículo con guía, conductor y placa. La entrega en obra se confirma con la remisión firmada.', quien: 'Jefe de Despachos / Administrador' },
+  { key: 'entregado', descripcion: 'El material fue recibido en obra (quién recibe y documento). El proyecto queda cerrado.', quien: 'Jefe de Despachos / Administrador' },
   { key: 'cancelado', descripcion: 'Proyecto cerrado sin despacho.', quien: 'Asesor / Administrador' },
 ];
 

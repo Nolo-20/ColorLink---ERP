@@ -9,6 +9,7 @@ export const ESTADO_PROYECTO_LABEL: Record<EstadoPipeline, string> = {
   aprobado_calidad: 'Aprobado por calidad',
   rechazado: 'Rechazado por calidad',
   despachado: 'Despachado',
+  entregado: 'Entregado en obra',
   cancelado: 'Cancelado',
 };
 
@@ -21,6 +22,7 @@ export const ESTADO_PROYECTO_CLIENTE: Record<EstadoPipeline, string> = {
   aprobado_calidad: 'Aprobado, en preparación de despacho',
   rechazado: 'Requiere ajustes técnicos',
   despachado: 'Material despachado',
+  entregado: 'Material entregado en obra',
   cancelado: 'Cancelado',
 };
 
@@ -31,6 +33,7 @@ export const RUTA_PROYECTO: EstadoPipeline[] = [
   'en_peritaje',
   'aprobado_calidad',
   'despachado',
+  'entregado',
 ];
 
 export const ESTADO_PROYECTO_BADGE: Record<EstadoPipeline, string> = {
@@ -41,10 +44,11 @@ export const ESTADO_PROYECTO_BADGE: Record<EstadoPipeline, string> = {
   aprobado_calidad: 'bg-green-500/15 text-green-400 border-green-500/40',
   rechazado: 'bg-red-500/15 text-red-400 border-red-500/40',
   despachado: 'bg-teal-500/15 text-teal-300 border-teal-500/40',
+  entregado: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
   cancelado: 'bg-slate-500/15 text-slate-400 border-slate-500/40',
 };
 
-export const ESTADOS_PROYECTO_CERRADOS: EstadoPipeline[] = ['despachado', 'cancelado'];
+export const ESTADOS_PROYECTO_CERRADOS: EstadoPipeline[] = ['despachado', 'entregado', 'cancelado'];
 
 /** Estados de un pedido de la tienda. */
 export const ESTADO_PEDIDO_LABEL: Record<EstadoPedido, string> = {

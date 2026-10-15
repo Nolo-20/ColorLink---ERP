@@ -88,6 +88,7 @@ export type EstadoPipeline =
   | 'aprobado_calidad'
   | 'rechazado'
   | 'despachado'
+  | 'entregado'
   | 'cancelado';
 
 export interface DiagnosticoIA {

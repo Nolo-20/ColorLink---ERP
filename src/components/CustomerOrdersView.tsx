@@ -67,7 +67,8 @@ export const CustomerOrdersView: React.FC = () => {
 
   const dispatchableProjects = proyectos.filter(p =>
     p.estadoPipeline === 'aprobado_calidad' ||
-    p.estadoPipeline === 'despachado'
+    p.estadoPipeline === 'despachado' ||
+    p.estadoPipeline === 'entregado'
   );
 
   const handleOpenAssignModal = (p: Proyecto) => {
@@ -186,7 +187,7 @@ export const CustomerOrdersView: React.FC = () => {
         ) : (
           dispatchableProjects.map((p) => {
             const isEnRuta = p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega;
-            const isDelivered = p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega;
+            const isDelivered = p.estadoPipeline === 'entregado' || (p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega);
             const isAlistamiento = p.estadoPipeline === 'aprobado_calidad';
             const d = p.despacho;
             const latestQuote = p.cotizaciones && p.cotizaciones[0];

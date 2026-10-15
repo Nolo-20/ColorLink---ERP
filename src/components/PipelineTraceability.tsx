@@ -43,6 +43,7 @@ const STAGE_ICON: Record<EstadoPipeline, React.ElementType> = {
   aprobado_calidad: CheckCircle2,
   rechazado: AlertCircle,
   despachado: Truck,
+  entregado: CheckCircle2,
   cancelado: X,
 };
 
@@ -54,6 +55,7 @@ const STAGE_DESCRIPTION: Record<EstadoPipeline, string> = {
   aprobado_calidad: 'Aprobado por calidad, listo para despachar',
   rechazado: 'Calidad pidió ajustes técnicos',
   despachado: 'Material enviado a la obra',
+  entregado: 'Material recibido en obra: proyecto cerrado',
   cancelado: 'Proyecto cerrado sin despacho',
 };
 
@@ -437,7 +439,7 @@ export const PipelineTraceability: React.FC = () => {
                     </button>
                   )}
 
-                  {(proy.estadoPipeline === 'aprobado_calidad' || proy.estadoPipeline === 'despachado') && hasModuleAccess('despachos') && (
+                  {(proy.estadoPipeline === 'aprobado_calidad' || proy.estadoPipeline === 'despachado' || proy.estadoPipeline === 'entregado') && hasModuleAccess('despachos') && (
                     <button
                       onClick={() => handleInspectDispatch(proy)}
                       className="text-sky-500 hover:underline flex items-center gap-1 cursor-pointer font-medium"

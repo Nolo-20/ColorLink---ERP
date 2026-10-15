@@ -51,7 +51,7 @@ export const EscalateAdvisorModal: React.FC = () => {
   if (!escalateModalOpen || !projectToEscalate) return null;
 
   const targetAdvisor = usuarios.find(u => u.usuarioId === selectedAdvisorId);
-  const proyectoCerrado = ['despachado', 'cancelado'].includes(projectToEscalate.estadoPipeline);
+  const proyectoCerrado = ['despachado', 'entregado', 'cancelado'].includes(projectToEscalate.estadoPipeline);
   const errMotivo = errorTexto(motivo, 'El motivo del escalamiento', { min: MOTIVO_MIN, max: MOTIVO_MAX, requerido: true });
   const cerrar = () => { if (!saving) setEscalateModalOpen(false); };
 

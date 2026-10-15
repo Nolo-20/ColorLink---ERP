@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useApp, canRole, ROLE_PERMISSIONS } from '../context/AppContext';
+import { useApp, canRole } from '../context/AppContext';
 import { Proyecto, DiagnosticoIA } from '../types/database';
 import { ESTADO_PROYECTO_LABEL } from '../estados';
 import { 
@@ -41,14 +41,22 @@ export const QualityReviewModule: React.FC = () => {
     setSelectedProyecto, 
     showToast,
     mensajesSinLeer,
-    setActiveTab,
     theme
   } = useApp();
 
   const isLight = theme === 'light';
 
+  // La cola muestra lo que falta por dictaminar; lo ya aprobado, despachado o entregado queda en "Historial"
+  const ESTADOS_HISTORIAL = ['aprobado_calidad', 'despachado', 'entregado', 'cancelado'];
+  const [vista, setVista] = useState<'pendientes' | 'historial'>(
+    selectedProyecto && ESTADOS_HISTORIAL.includes(selectedProyecto.estadoPipeline) ? 'historial' : 'pendientes'
+  );
+  const pendientes = proyectos.filter(p => !ESTADOS_HISTORIAL.includes(p.estadoPipeline));
+  const historial = proyectos.filter(p => ESTADOS_HISTORIAL.includes(p.estadoPipeline));
+  const cola = vista === 'pendientes' ? pendientes : historial;
+
   const [activeProject, setActiveProject] = useState<Proyecto>(
-    selectedProyecto || proyectos.find(p => p.estadoPipeline === 'en_peritaje') || proyectos[0]
+    selectedProyecto || pendientes.find(p => p.estadoPipeline === 'en_peritaje') || pendientes[0] || proyectos[0]
   );
 
   // Foto que subió el cliente + pedido de cambio de imagen
@@ -124,7 +132,7 @@ export const QualityReviewModule: React.FC = () => {
     setSelectedProyecto(p);
   };
 
-  const proyectoCerrado = !!activeProject && ['despachado', 'cancelado'].includes(activeProject.estadoPipeline);
+  const proyectoCerrado = !!activeProject && ['despachado', 'entregado', 'cancelado'].includes(activeProject.estadoPipeline);
 
   // ---- Validación del dictamen
   const errHumedad = errorRango(humedadTxt, 'La humedad', { min: 0, max: 100, unidad: '%' });
@@ -211,13 +219,35 @@ export const QualityReviewModule: React.FC = () => {
         {/* Left: Queue of Projects */}
         <div className="lg:col-span-4 space-y-3">
           <div className="flex items-center justify-between px-1">
-            <span className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Cola de Proyectos ({proyectos.length})
-            </span>
+            <div className={`inline-flex rounded-xl p-1 border ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-900 border-slate-800'}`} role="tablist" aria-label="Proyectos de calidad">
+              {([['pendientes', `Por dictaminar (${pendientes.length})`], ['historial', `Historial (${historial.length})`]] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={vista === id}
+                  onClick={() => {
+                    setVista(id);
+                    const lista = id === 'pendientes' ? pendientes : historial;
+                    if (lista[0] && !lista.some(p => p.proyectoId === activeProject?.proyectoId)) handleSelectProject(lista[0]);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                    vista === id ? 'bg-amber-400 text-slate-950' : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          {cola.length === 0 && (
+            <p className={`text-xs px-1 py-6 text-center ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              {vista === 'pendientes' ? 'No hay proyectos pendientes de dictamen.' : 'Aún no hay proyectos dictaminados.'}
+            </p>
+          )}
 
           <div className="space-y-2.5 max-h-[750px] overflow-y-auto pr-1">
-            {proyectos.map((p) => {
+            {cola.map((p) => {
               const isSelected = activeProject?.proyectoId === p.proyectoId;
               const isPending = p.estadoPipeline === 'en_peritaje';
               const diag = p.diagnostico;
@@ -344,63 +374,6 @@ export const QualityReviewModule: React.FC = () => {
                 )}
               </div>
 
-              {/* Qué sigue después del dictamen */}
-              {(activeProject.estadoPipeline === 'aprobado_calidad' || activeProject.estadoPipeline === 'rechazado' || activeProject.estadoPipeline === 'despachado') && (() => {
-                const rol = currentUser?.rol.rol as keyof typeof ROLE_PERMISSIONS | undefined;
-                const veDespachos = !!rol && ROLE_PERMISSIONS[rol]?.includes('despachos');
-                const paso = activeProject.estadoPipeline === 'aprobado_calidad'
-                  ? {
-                      tono: isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-100',
-                      titulo: 'Sustrato aprobado: el proyecto pasó a Despachos',
-                      pasos: [
-                        'Se le avisó al cliente que su proyecto fue aprobado y está en preparación de despacho.',
-                        'El Jefe de Despachos alista los cuñetes/galones de la cotización y registra el despacho (transportadora, guía y fecha) en el Módulo de Despachos.',
-                        'Cuando el material llegue a la obra se marca como entregado y el proyecto queda cerrado.',
-                      ],
-                    }
-                  : activeProject.estadoPipeline === 'rechazado'
-                  ? {
-                      tono: isLight ? 'bg-rose-50 border-rose-300 text-rose-900' : 'bg-rose-950/40 border-rose-500/40 text-rose-100',
-                      titulo: 'Sustrato rechazado: el cliente debe corregir',
-                      pasos: [
-                        'Se le avisó al cliente que la superficie requiere ajustes técnicos, con tus notas.',
-                        'Cuando el cliente corrija (o el asesor coordine una visita), vuelve a medir y emite un nuevo dictamen aquí mismo.',
-                      ],
-                    }
-                  : {
-                      tono: isLight ? 'bg-sky-50 border-sky-300 text-sky-900' : 'bg-sky-950/40 border-sky-500/40 text-sky-100',
-                      titulo: 'Material despachado',
-                      pasos: ['El proyecto ya salió de bodega. El seguimiento de la entrega está en el Módulo de Despachos.'],
-                    };
-                return (
-                  <div className={`border rounded-xl p-4 mb-5 ${paso.tono}`} data-testid="calidad-siguiente-paso">
-                    <p className="text-xs font-black uppercase tracking-wider mb-2">¿Qué sigue?</p>
-                    <p className="text-sm font-bold mb-2">{paso.titulo}</p>
-                    <ol className="list-decimal pl-5 space-y-1 text-xs leading-relaxed">
-                      {paso.pasos.map((t, i) => <li key={i}>{t}</li>)}
-                    </ol>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {activeProject.estadoPipeline !== 'rechazado' && veDespachos && (
-                        <button type="button" onClick={() => setActiveTab('despachos')} className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold cursor-pointer">
-                          Ir al Módulo de Despachos
-                        </button>
-                      )}
-                      {activeProject.estadoPipeline !== 'rechazado' && !veDespachos && (
-                        <span className="text-[11px] opacity-80">El Jefe de Despachos ya lo ve en su cola de alistamiento.</span>
-                      )}
-                      {(() => {
-                        const siguiente = proyectos.find(p => p.estadoPipeline === 'en_peritaje' && p.proyectoId !== activeProject.proyectoId);
-                        return siguiente ? (
-                          <button type="button" onClick={() => handleSelectProject(siguiente)} className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${isLight ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50' : 'bg-slate-900 border-slate-600 text-white hover:bg-slate-800'}`}>
-                            Siguiente en peritaje: {siguiente.nombreProyecto}
-                          </button>
-                        ) : null;
-                      })()}
-                    </div>
-                  </div>
-                );
-              })()}
-
               {/* Imagen enviada por el cliente */}
               <div className={`border rounded-xl p-4 mb-5 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
                 <span className={`text-xs font-bold block mb-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
@@ -420,7 +393,7 @@ export const QualityReviewModule: React.FC = () => {
                   </p>
                 )}
 
-                {canRole.emitirVeredicto(currentUser?.rol.rol) && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
+                {canRole.emitirVeredicto(currentUser?.rol.rol) && !['despachado', 'entregado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
                   pidiendoImagen ? (
                     <div className="mt-3 space-y-2">
                       <textarea
@@ -607,8 +580,7 @@ export const QualityReviewModule: React.FC = () => {
                 {canRole.emitirVeredicto(currentUser?.rol.rol) && proyectoCerrado ? (
                   <p className="pt-2 text-xs text-slate-400">Este proyecto ya está cerrado ({ESTADO_PROYECTO_LABEL[activeProject.estadoPipeline]}); no admite un nuevo dictamen.</p>
                 ) : canRole.emitirVeredicto(currentUser?.rol.rol) && activeProject.estadoPipeline === 'aprobado_calidad' && !corrigiendo ? (
-                  <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-slate-400">Dictamen emitido: sustrato aprobado y despacho autorizado.</p>
+                  <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
                     <button type="button" onClick={() => setCorrigiendo(true)} className="text-xs font-bold text-amber-500 hover:underline cursor-pointer">
                       Corregir dictamen
                     </button>

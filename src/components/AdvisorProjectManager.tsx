@@ -195,8 +195,8 @@ export const AdvisorProjectManager: React.FC = () => {
 
   const puedeEditar = canRole.editarProyecto(currentUser?.rol.rol);
   const puedeEscalar = puedeEditar || currentUser?.rol.rol === 'Perito de Calidad';
-  const proyectoCerrado = !!activeProject && ['despachado', 'cancelado'].includes(activeProject.estadoPipeline);
-  const admiteCotizacion = !!activeProject && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline);
+  const proyectoCerrado = !!activeProject && ['despachado', 'entregado', 'cancelado'].includes(activeProject.estadoPipeline);
+  const admiteCotizacion = !!activeProject && !['despachado', 'entregado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline);
   // El descuento se guarda en el proyecto al cotizar (la tabla de cotizaciones no lo tiene)
   const descuentoQuote = activeProject?.descuentoAsesorPct ?? 0;
   const numeroHistorialEscalados = activeProject?.historialAsesores?.length ?? 0;
@@ -490,7 +490,7 @@ export const AdvisorProjectManager: React.FC = () => {
                   </p>
                 )}
 
-                {puedeEditar && !['despachado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
+                {puedeEditar && !['despachado', 'entregado', 'cancelado', 'aprobado_calidad'].includes(activeProject.estadoPipeline) && (
                   pidiendoImagen ? (
                     <div className="mt-3 space-y-2">
                       <textarea

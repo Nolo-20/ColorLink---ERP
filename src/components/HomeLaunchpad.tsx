@@ -62,7 +62,7 @@ export const HomeLaunchpad: React.FC = () => {
   const pendingQuality = proyectos.filter(p => p.estadoPipeline === 'en_peritaje').length;
   const inTransit = proyectos.filter(p => p.estadoPipeline === 'despachado' && !p.despacho?.fechaEntrega).length;
   const inTintingOrWarehouse = proyectos.filter(p => p.estadoPipeline === 'cotizado' || p.estadoPipeline === 'aprobado_calidad').length;
-  const delivered = proyectos.filter(p => p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega).length;
+  const delivered = proyectos.filter(p => (p.estadoPipeline === 'entregado' || (p.estadoPipeline === 'despachado' && !!p.despacho?.fechaEntrega))).length;
   
   const obrasActivas = proyectos.filter(p => !ESTADOS_PROYECTO_CERRADOS.includes(p.estadoPipeline)).length;
   const pedidosActivos = pedidos.filter(p => p.estadoPedido !== 'entregado_recogido' && p.estadoPedido !== 'cancelado').length;
