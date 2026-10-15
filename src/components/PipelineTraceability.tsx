@@ -1,3 +1,5 @@
+import { ProgressTracker } from './ProgressTracker';
+import { progresoProyecto } from '../shared/progreso';
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Proyecto, EstadoPipeline } from '../types/database';
@@ -275,7 +277,12 @@ export const PipelineTraceability: React.FC = () => {
                   <span className="text-emerald-500 font-medium">{proy.empresa?.ciudad?.ciudad || '—'}</span>
                 </div>
 
-                {/* Technical Specs: Color Swatch + Area + Superficie */}
+                {/* Barra de seguimiento del proyecto */}
+              <div className={`mb-4 rounded-2xl border px-2 py-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'}`}>
+                <ProgressTracker progreso={progresoProyecto(proy.estadoPipeline)} conTitulo={false} compacto oscuro={!isLight} />
+              </div>
+
+              {/* Technical Specs: Color Swatch + Area + Superficie */}
                 <div className={`rounded-xl p-3 border mb-3 space-y-2 ${
                   isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800/80'
                 }`}>

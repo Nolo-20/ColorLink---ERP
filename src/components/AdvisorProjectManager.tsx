@@ -1,3 +1,5 @@
+import { ProgressTracker } from './ProgressTracker';
+import { progresoProyecto } from '../shared/progreso';
 import React, { useState, useEffect, useMemo } from 'react';
 import { ESTADO_PROYECTO_LABEL } from '../estados';
 import { useApp, canRole } from '../context/AppContext';
@@ -362,6 +364,11 @@ export const AdvisorProjectManager: React.FC = () => {
                   </button>
                   )}
                 </div>
+              </div>
+
+              {/* Barra de seguimiento del proyecto */}
+              <div className={`mb-4 rounded-2xl border px-2 py-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'}`}>
+                <ProgressTracker progreso={progresoProyecto(activeProject.estadoPipeline)} conTitulo={false} oscuro={!isLight} />
               </div>
 
               {/* Assigned Advisor Banner Card */}

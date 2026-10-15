@@ -1,3 +1,5 @@
+import { ProgressTracker } from './ProgressTracker';
+import { progresoPedido, estadoPedidoDesdeErp } from '../shared/progreso';
 import React, { useState, useEffect } from 'react';
 import { useApp, canRole } from '../context/AppContext';
 import { EstadoPedido, ModalidadEntrega, PedidoTienda } from '../types/database';
@@ -499,6 +501,16 @@ export const OrdersStoreView: React.FC = () => {
                         </div>
                       </div>
 
+                      {/* Barra de seguimiento del pedido */}
+                      <div className={`mt-3 rounded-2xl border px-2 py-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'}`}>
+                        <ProgressTracker
+                          progreso={progresoPedido(estadoPedidoDesdeErp(p.estadoPedido), isPickup)}
+                          conTitulo={false}
+                          compacto
+                          oscuro={!isLight}
+                        />
+                      </div>
+
                       {/* Pick Up Specific Box (Código de Retiro & Sucursal) */}
                       {isPickup && (
                         <div className={`my-3 p-3.5 rounded-2xl border flex items-center justify-between ${
@@ -750,6 +762,14 @@ export const OrdersStoreView: React.FC = () => {
               >
                 <X className="w-4 h-4" />
               </button>
+            </div>
+
+            <div className={`rounded-2xl border px-2 py-4 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'}`}>
+              <ProgressTracker
+                progreso={progresoPedido(estadoPedidoDesdeErp(selectedOrderDetails.estadoPedido), selectedOrderDetails.modalidadEntrega === 'recogida_sucursal')}
+                conTitulo={false}
+                oscuro={!isLight}
+              />
             </div>
 
             <div className="space-y-2">

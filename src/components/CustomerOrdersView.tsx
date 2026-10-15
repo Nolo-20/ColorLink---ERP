@@ -1,3 +1,5 @@
+import { ProgressTracker } from './ProgressTracker';
+import { progresoProyecto } from '../shared/progreso';
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Proyecto } from '../types/database';
@@ -243,7 +245,12 @@ export const CustomerOrdersView: React.FC = () => {
                     <span className="truncate">{p.empresa?.razonSocial || '—'}</span>
                   </div>
 
-                  {/* Destination & Volume */}
+                  {/* Barra de seguimiento del proyecto */}
+              <div className={`mb-4 rounded-2xl border px-2 py-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'}`}>
+                <ProgressTracker progreso={progresoProyecto(p.estadoPipeline)} conTitulo={false} compacto oscuro={!isLight} />
+              </div>
+
+              {/* Destination & Volume */}
                   <div className={`rounded-xl p-3 border space-y-2 mb-3 text-xs ${
                     isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'
                   }`}>
