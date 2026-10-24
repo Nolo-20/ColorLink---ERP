@@ -274,7 +274,7 @@ export const PipelineTraceability: React.FC = () => {
                   <Building2 className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
                   <span className="truncate">{proy.empresa?.razonSocial || 'Cliente General'}</span>
                   <span>•</span>
-                  <span className="text-emerald-500 font-medium">{proy.empresa?.ciudad?.ciudad || '—'}</span>
+                  <span className="text-emerald-500 font-medium">{(proy.ciudadObra || proy.empresa?.ciudad?.ciudad) || '—'}</span>
                 </div>
 
                 {/* Barra de seguimiento del proyecto */}

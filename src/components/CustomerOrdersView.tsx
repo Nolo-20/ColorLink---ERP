@@ -83,7 +83,7 @@ export const CustomerOrdersView: React.FC = () => {
     setTransitHours('');
     setBodegaOrigen('');
     setDireccion((p.empresa?.direccionDespacho || '').slice(0, DIRECCION_MAX));
-    setCiudad(p.empresa?.ciudad?.ciudad || '');
+    setCiudad((p.ciudadObra || p.empresa?.ciudad?.ciudad) || '');
     setTouched({});
     setAssignId(p.proyectoId);
   };
@@ -258,7 +258,7 @@ export const CustomerOrdersView: React.FC = () => {
                       <MapPin className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-0.5" />
                       <span className="line-clamp-2">
                         {(d?.direccionEntrega || p.empresa?.direccionDespacho) || 'Sin dirección registrada'}
-                        {(d?.ciudadEntrega || p.empresa?.ciudad?.ciudad) ? ` (${d?.ciudadEntrega || p.empresa?.ciudad?.ciudad})` : ''}
+                        {(d?.ciudadEntrega || (p.ciudadObra || p.empresa?.ciudad?.ciudad)) ? ` (${d?.ciudadEntrega || (p.ciudadObra || p.empresa?.ciudad?.ciudad)})` : ''}
                       </span>
                     </div>
 

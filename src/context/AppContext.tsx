@@ -135,6 +135,8 @@ interface AppContextType {
   ) => Promise<boolean>;
   solicitarCambioImagen: (proyectoId: string, motivo: string) => Promise<boolean>;
   obtenerImagenProyecto: (proyectoId: string) => Promise<string | null>;
+  /** Todas las fotos del proyecto (la más reciente primero) */
+  obtenerImagenesProyecto: (proyectoId: string) => Promise<string[]>;
   despacharProyecto: (proyectoId: string, despacho: Partial<DespachoInfo>) => Promise<boolean>;
   confirmarEntrega: (proyectoId: string, recibidoPor: string, docRecibe: string) => Promise<boolean>;
 
@@ -596,6 +598,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const obtenerImagenesProyecto = async (proyectoId: string): Promise<string[]> => {
+    try {
+      const r = await api.getProjectEvidence(proyectoId);
+      const lista = Array.isArray(r.evidences) ? r.evidences : r.evidence ? [r.evidence] : [];
+      return lista.map((e: any) => e.imageDataUri).filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+
   // ------------------------------------------------------------ Inventario
   const actualizarStockInventario = async (inventarioId: string, cantidad: number) => {
     try {
@@ -769,7 +781,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         theme, toggleTheme, searchQuery, setSearchQuery,
         loginWithEmailPassword, logout,
         cambiarEstadoProyecto, guardarDiagnosticoCalidad, calcularYGuardarCotizacion,
-        escalarAsesorProyecto, solicitarCambioImagen, obtenerImagenProyecto,
+        escalarAsesorProyecto, solicitarCambioImagen, obtenerImagenProyecto, obtenerImagenesProyecto,
         despacharProyecto, confirmarEntrega,
         actualizarStockInventario, agregarEntradaInventario,
         crearUsuario, actualizarEmpleado, actualizarPerfilUsuario,

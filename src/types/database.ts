@@ -101,6 +101,14 @@ export interface DiagnosticoIA {
   rendimientoEstimado?: number; // m2/galón
   confianzaIaPct?: number;
   requiereVisitaHumana: boolean;
+  // Clasificación con IA
+  categoria?: string;
+  complejidad?: string;
+  textoExtraido?: string;
+  imagenCoherente?: boolean;
+  imagenObservacion?: string;
+  modeloIa?: string;
+  fechaClasificacion?: string;
   humedadRelativa?: number; // %
   severidadFisuras?: 'Sin fisuras' | 'Fisuración capilar <0.2mm' | 'Fisura activa 0.5-1mm' | 'Grieta estructural >2mm';
   notasPerito?: string;
@@ -310,6 +318,18 @@ export interface Proyecto {
   color?: string;
   colorHex?: string;
   canalOrigen?: string;
+  // Captura inteligente
+  /** Ciudad de la obra (si no hay, se usa la de la empresa) */
+  ciudadObra?: string;
+  tipoProyecto?: string;
+  condiciones: string[];
+  /** AAAA-MM-DD */
+  fechaRequerida?: string;
+  descripcion?: string;
+  consentimientoDatos: boolean;
+  consentimientoFecha?: string;
+  /** Resultado de la validación automática al capturar */
+  validacionCaptura?: { advertencias: string[]; completitudPct: number; duplicados?: Array<{ proyectoId: string; nombreProyecto: string; motivos: string[] }> };
   estadoPipeline: EstadoPipeline;
   descuentoAsesorPct?: number;
   observacionesAsesor?: string;

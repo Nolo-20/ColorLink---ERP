@@ -1,4 +1,5 @@
 import { ProgressTracker } from './ProgressTracker';
+import { CapturaResumen } from './CapturaResumen';
 import { progresoProyecto } from '../shared/progreso';
 import React, { useState, useEffect, useMemo } from 'react';
 import { ESTADO_PROYECTO_LABEL } from '../estados';
@@ -47,7 +48,7 @@ export const AdvisorProjectManager: React.FC = () => {
     calcularYGuardarCotizacion, 
     cambiarEstadoProyecto, 
     solicitarCambioImagen,
-    obtenerImagenProyecto,
+    obtenerImagenesProyecto,
     currentUser,
     setActiveTab,
     showToast,
@@ -114,6 +115,7 @@ export const AdvisorProjectManager: React.FC = () => {
   }, [activeProject?.proyectoId]);
 
   const [imagen, setImagen] = useState<string | null>(null);
+  const [fotos, setFotos] = useState<string[]>([]);
   const [imagenCargando, setImagenCargando] = useState(false);
   const [motivoImagen, setMotivoImagen] = useState('');
   const [pidiendoImagen, setPidiendoImagen] = useState(false);
@@ -121,12 +123,13 @@ export const AdvisorProjectManager: React.FC = () => {
   useEffect(() => {
     let cancelado = false;
     setImagen(null);
+    setFotos([]);
     setMotivoImagen('');
     setPidiendoImagen(false);
     if (!activeProject) return;
     setImagenCargando(true);
-    obtenerImagenProyecto(activeProject.proyectoId)
-      .then(img => { if (!cancelado) setImagen(img); })
+    obtenerImagenesProyecto(activeProject.proyectoId)
+      .then(imgs => { if (!cancelado) { setFotos(imgs); setImagen(imgs[0] || null); } })
       .finally(() => { if (!cancelado) setImagenCargando(false); });
     return () => { cancelado = true; };
   }, [activeProject?.proyectoId]);
@@ -450,7 +453,7 @@ export const AdvisorProjectManager: React.FC = () => {
                     {activeProject.empresa?.direccionDespacho || '—'}
                   </span>
                   <span className="text-[10px] text-emerald-500 font-semibold">
-                    {activeProject.empresa?.ciudad?.ciudad || '—'}
+                    {(activeProject.ciudadObra || activeProject.empresa?.ciudad?.ciudad) || '—'}
                   </span>
                 </div>
 
@@ -478,6 +481,8 @@ export const AdvisorProjectManager: React.FC = () => {
                 </div>
               </div>
 
+              <CapturaResumen proyecto={activeProject} isLight={isLight} />
+
               {/* Imagen enviada por el cliente */}
               <div className={`mt-4 pt-4 border-t ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                 <span className={`text-xs font-bold block mb-2 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
@@ -486,7 +491,18 @@ export const AdvisorProjectManager: React.FC = () => {
                 {imagenCargando ? (
                   <p className="text-xs text-slate-400">Cargando imagen…</p>
                 ) : imagen ? (
-                  <img src={imagen} alt="Superficie a intervenir" className="max-h-64 rounded-lg border border-slate-700 object-contain" />
+                  <div className="space-y-2">
+                    <img src={imagen} alt="Superficie a intervenir" className="max-h-64 rounded-lg border border-slate-700 object-contain" />
+                    {fotos.length > 1 && (
+                      <div className="flex flex-wrap gap-2" aria-label="Fotos del proyecto">
+                        {fotos.map((f, i) => (
+                          <button key={i} type="button" onClick={() => setImagen(f)} aria-label={`Ver foto ${i + 1}`} className={`w-14 h-14 rounded-lg overflow-hidden border-2 cursor-pointer ${f === imagen ? 'border-amber-400' : 'border-slate-700 opacity-70 hover:opacity-100'}`}>
+                            <img src={f} alt="" className="w-full h-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <p className="text-xs text-slate-400">Este proyecto no tiene imagen guardada.</p>
                 )}

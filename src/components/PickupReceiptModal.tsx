@@ -145,7 +145,7 @@ export const PickupReceiptModal: React.FC<Props> = ({ proyecto, onClose }) => {
               <p className="text-slate-300">NIT: {dash(proyecto.empresa?.nitCedula)}</p>
               <p className="text-slate-300">Obra: <strong className="text-emerald-300">{proyecto.nombreProyecto}</strong></p>
               <p className="text-slate-300">Dirección: {dash(d?.direccionEntrega || proyecto.empresa?.direccionDespacho)}</p>
-              <p className="text-slate-300">Municipio: {dash(d?.ciudadEntrega || proyecto.empresa?.ciudad?.ciudad)}</p>
+              <p className="text-slate-300">Municipio: {dash(d?.ciudadEntrega || (proyecto.ciudadObra || proyecto.empresa?.ciudad?.ciudad))}</p>
             </div>
 
             <div>

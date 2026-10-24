@@ -50,7 +50,7 @@ export const RoleDashboard: React.FC = () => {
   // Cobertura por municipio calculada con los proyectos reales (ciudad de la empresa cliente)
   const porCiudad = Array.from(
     proyectosActivos.reduce((map, p) => {
-      const ciudad = p.empresa?.ciudad?.ciudad || 'Sin ciudad';
+      const ciudad = (p.ciudadObra || p.empresa?.ciudad?.ciudad) || 'Sin ciudad';
       const cur = map.get(ciudad) || { ciudad, proyectos: 0, cunetes: 0, despachados: 0 };
       cur.proyectos += 1;
       cur.cunetes += p.cotizaciones?.[0]?.cunetes5g || 0;

@@ -185,6 +185,9 @@ function mapDiagnostico(raw: any): DiagnosticoIA {
           .join(' + ');
       } else if (typeof parsed === 'string') {
         sistema = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        // { paso1_preparacion, paso2_imprimante_sellador, paso3_acabado }
+        sistema = Object.values(parsed).filter(Boolean).map(String).join(' → ');
       }
     } catch {
       /* ya era texto plano */
@@ -200,6 +203,13 @@ function mapDiagnostico(raw: any): DiagnosticoIA {
     rendimientoEstimado: raw.rendimientoEstimado ?? undefined,
     confianzaIaPct: raw.confianzaIaPct ?? undefined,
     requiereVisitaHumana: !!raw.requiereVisitaHumana,
+    categoria: raw.categoria || undefined,
+    complejidad: raw.complejidad || undefined,
+    textoExtraido: raw.textoExtraido || undefined,
+    imagenCoherente: raw.imagenCoherente ?? undefined,
+    imagenObservacion: raw.imagenObservacion || undefined,
+    modeloIa: raw.modeloIa || undefined,
+    fechaClasificacion: raw.fechaClasificacion || undefined,
     humedadRelativa: raw.humedadRelativa ?? undefined,
     severidadFisuras: raw.severidadFisuras || undefined,
     notasPerito: raw.notasPerito || undefined,
@@ -320,6 +330,20 @@ export function mapProyecto(raw: any): Proyecto {
     color: raw.color || undefined,
     colorHex: raw.colorHex || undefined,
     canalOrigen: raw.canalOrigen || undefined,
+    ciudadObra: raw.ciudad?.ciudad || raw.empresa?.ciudad?.ciudad || undefined,
+    tipoProyecto: raw.tipoProyecto || undefined,
+    condiciones: Array.isArray(raw.condiciones) ? raw.condiciones : [],
+    fechaRequerida: raw.fechaRequerida ? String(raw.fechaRequerida).slice(0, 10) : undefined,
+    descripcion: raw.descripcion || undefined,
+    consentimientoDatos: !!raw.consentimientoDatos,
+    consentimientoFecha: raw.consentimientoFecha || undefined,
+    validacionCaptura: raw.validacionCaptura && typeof raw.validacionCaptura === 'object'
+      ? {
+          advertencias: Array.isArray(raw.validacionCaptura.advertencias) ? raw.validacionCaptura.advertencias : [],
+          completitudPct: Number(raw.validacionCaptura.completitudPct) || 0,
+          duplicados: Array.isArray(raw.validacionCaptura.duplicados) ? raw.validacionCaptura.duplicados : [],
+        }
+      : undefined,
     estadoPipeline: normalizeEstadoProyecto(raw.estadoPipeline),
     descuentoAsesorPct: raw.descuentoAsesorPct ?? undefined,
     observacionesAsesor: raw.observacionesAsesor || undefined,
