@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { ProjectChatPanel } from './ProjectChatPanel';
 import { CapturaResumen } from './CapturaResumen';
-import { FieldError, bordeCampo } from './ui';
+import { FieldError, bordeCampo, abrirPdf, esPdf } from './ui';
 import { limpiarDecimal, aNumero, errorRango, errorTexto } from '../validation';
 
 const PATOLOGIA_MAX = 500;
@@ -86,7 +86,7 @@ export const QualityReviewModule: React.FC = () => {
     if (!activeProject) return;
     setImagenCargando(true);
     obtenerImagenesProyecto(activeProject.proyectoId)
-      .then(imgs => { if (!cancelado) { setFotos(imgs); setImagen(imgs[0] || null); } })
+      .then(imgs => { if (!cancelado) { setFotos(imgs); setImagen(imgs.find(x => !esPdf(x)) || null); } })
       .finally(() => { if (!cancelado) setImagenCargando(false); });
     return () => { cancelado = true; };
   }, [activeProject?.proyectoId]);
@@ -389,9 +389,9 @@ export const QualityReviewModule: React.FC = () => {
                 ) : imagen ? (
                   <div className="space-y-2">
                     <img src={imagen} alt="Superficie a intervenir" className="max-h-72 rounded-lg border border-slate-700 object-contain" />
-                    {fotos.length > 1 && (
+                    {fotos.filter(x => !esPdf(x)).length > 1 && (
                       <div className="flex flex-wrap gap-2" aria-label="Fotos del proyecto">
-                        {fotos.map((f, i) => (
+                        {fotos.filter(x => !esPdf(x)).map((f, i) => (
                           <button key={i} type="button" onClick={() => setImagen(f)} aria-label={`Ver foto ${i + 1}`} className={`w-14 h-14 rounded-lg overflow-hidden border-2 cursor-pointer ${f === imagen ? 'border-amber-400' : 'border-slate-700 opacity-70 hover:opacity-100'}`}>
                             <img src={f} alt="" className="w-full h-full object-cover" />
                           </button>
@@ -400,7 +400,16 @@ export const QualityReviewModule: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-400">Este proyecto no tiene imagen guardada.</p>
+                  <p className="text-xs text-slate-400">{fotos.length ? 'El cliente adjuntó solo documentos.' : 'Este proyecto no tiene imagen guardada.'}</p>
+                )}
+                {fotos.some(esPdf) && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {fotos.filter(esPdf).map((d, i) => (
+                      <button key={i} type="button" onClick={() => abrirPdf(d)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-500 text-xs font-bold cursor-pointer hover:bg-red-500/20">
+                        PDF · Documento {i + 1}
+                      </button>
+                    ))}
+                  </div>
                 )}
 
                 {activeProject.estadoPipeline === 'imagen_por_corregir' && (

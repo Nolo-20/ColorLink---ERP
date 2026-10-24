@@ -115,3 +115,19 @@ export const ColorDots: React.FC<{ colorHex?: string | null; className?: string 
     </span>
   );
 };
+
+/** Abre un PDF guardado como data URI en una pestaña nueva (los navegadores bloquean abrir data: directamente). */
+export function abrirPdf(dataUri: string) {
+  try {
+    const b64 = dataUri.split(',')[1] || '';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch {
+    /* PDF dañado: no se abre */
+  }
+}
+export const esPdf = (dataUri?: string | null) => !!dataUri && dataUri.startsWith('data:application/pdf');
